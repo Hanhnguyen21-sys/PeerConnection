@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.routes.users import router as users_router
 
 app = FastAPI(title="Peer Connections API")
+app.include_router(users_router)
 
 app.add_middleware(
     CORSMiddleware,
