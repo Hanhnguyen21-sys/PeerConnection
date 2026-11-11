@@ -25,3 +25,28 @@ CREATE TABLE public.locations (
 );
 
 ALTER TABLE public.locations ENABLE ROW LEVEL SECURITY;
+
+-- Events
+CREATE TABLE public.events (
+    event_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    organizer_id UUID NOT NULL
+        REFERENCES public.users(user_id)
+);
+
+-- Shifts
+CREATE TABLE public.shifts (
+    shift_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    event_id BIGINT NOT NULL
+        REFERENCES public.events(event_id),
+    location_id BIGINT NOT NULL
+        REFERENCES public.locations(location_id),
+    shift_date DATE NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    capacity INTEGER NOT NULL,
+
+    CHECK (end_time > start_time),
+    CHECK (capacity > 0)
+);
