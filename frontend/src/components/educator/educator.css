@@ -1,0 +1,310 @@
+/* Peer educator views. Builds on the shared dashboard styles in supervisor.css. */
+
+/* ---------- Explore cards (reference: image tile with an overlay strip) ---------- */
+
+.explore-card {
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+
+.explore-visual {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 190px;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.explore-visual-date {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 8px;
+  background: var(--sky);
+  color: var(--navy);
+  text-align: center;
+}
+
+.explore-visual .event-date-month {
+  color: var(--navy);
+}
+
+.explore-visual-strip {
+  padding: 10px 8px;
+  background: var(--navy);
+  color: #ffffff;
+  font-weight: 600;
+  text-align: center;
+}
+
+.explore-visual-strip.is-full {
+  background: #464e5f;
+}
+
+.explore-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--sv-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.explore-location {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.explore-location svg {
+  flex: none;
+  color: var(--ocean-ink);
+}
+
+.explore-mine {
+  color: #1d6b3d;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.explore-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.spots-pill {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--sky-tint);
+  color: var(--ocean-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.spots-pill.is-full {
+  background: #eceef2;
+  color: #464e5f;
+}
+
+.badge-registered {
+  gap: 4px;
+  background: #e2f5e9;
+  color: #1d6b3d;
+}
+
+/* ---------- Event detail ---------- */
+
+.confirmation {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  border: 1px solid #b9e2c8;
+  border-radius: 14px;
+  background: #eef9f2;
+  color: #1d5c37;
+}
+
+.confirmation > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.confirmation-title {
+  color: #134a2b;
+  font-weight: 700;
+}
+
+.confirmation .text-link {
+  margin-top: 6px;
+  color: #1d5c37;
+}
+
+.educator-shift-list .shift-item {
+  grid-template-columns:
+    minmax(140px, 0.9fr) minmax(200px, 1.5fr) minmax(150px, 1fr)
+    minmax(190px, auto);
+  align-items: start;
+}
+
+.shift-item.is-mine {
+  border-color: #9ad3b0;
+  background: #f6fcf8;
+}
+
+.shift-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  text-align: right;
+}
+
+.shift-action-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.shift-action .hint {
+  max-width: 240px;
+}
+
+/* ---------- My events ---------- */
+
+.registration-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.registration-item {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+  padding: 16px 18px;
+  border: 1px solid var(--sv-border);
+  border-radius: 12px;
+  background: var(--sv-surface);
+}
+
+.registration-item.is-compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: #fafbfd;
+}
+
+.registration-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 6px;
+  border-radius: 10px;
+  background: var(--sky-tint);
+  color: var(--navy);
+}
+
+.registration-date .event-date-day {
+  font-size: 1.5rem;
+}
+
+.registration-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.registration-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.registration-title a {
+  color: var(--navy);
+  text-decoration: none;
+  border-radius: 4px;
+}
+
+.registration-title a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.registration-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.history {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--sv-border);
+}
+
+.history summary {
+  width: fit-content;
+  color: var(--ocean-ink);
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.history[open] summary {
+  margin-bottom: 8px;
+}
+
+.history .registration-list {
+  margin-top: 12px;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1100px) {
+  .educator-shift-list .shift-item {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .shift-action,
+  .shift-action-stack {
+    align-items: flex-start;
+    text-align: left;
+  }
+}
+
+@media (max-width: 760px) {
+  .explore-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .explore-visual {
+    flex-direction: row;
+    min-height: 0;
+  }
+
+  .explore-visual-date {
+    flex: 1;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 10px 14px;
+  }
+
+  .explore-visual .event-date-day {
+    font-size: 1.25rem;
+  }
+
+  .explore-visual-strip {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+  }
+
+  .educator-shift-list .shift-item,
+  .registration-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .registration-date {
+    display: none;
+  }
+
+  .registration-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+}
