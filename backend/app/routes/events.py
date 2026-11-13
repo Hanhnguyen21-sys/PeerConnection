@@ -44,7 +44,7 @@ def get_event(event_id: int):
                 SELECT events.event_id, events.title, events.description, events.organizer_id, users.name AS organizer_name
                 FROM public.events
                 JOIN public.users ON events.organizer_id = users.user_id
-                WHERE events.evemt_id = %s
+                WHERE events.event_id = %s
                 """, (event_id,),
             )
             
