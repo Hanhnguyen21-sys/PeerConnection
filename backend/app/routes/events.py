@@ -10,6 +10,14 @@ from app.db import get_connection
 
 router = APIRouter(prefix="/api", tags=["Events"])
 
+class EventCreate(BaseModel):
+    title: str
+    description: str
+
+class EventUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+
 @router.get("/events")
 def get_events():
     with get_connection() as conn:
@@ -26,11 +34,6 @@ def get_events():
             events = cursor.fetchall()
     
     return events
-
-
-class EventCreate(BaseModel):
-    title: str
-    description: str
 
 @router.post("/events")
 def create_event(event: EventCreate, user_id: UUID = Depends(get_authenticated_user_id)):
@@ -57,10 +60,6 @@ def create_event(event: EventCreate, user_id: UUID = Depends(get_authenticated_u
             )
 
     return {"message": "Event created successfully"}
-
-class EventUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
 
 @router.patch("/events/{event_id}")
 def update_event(event_id: int, event: EventUpdate, user_id: UUID = Depends(get_authenticated_user_id)):
@@ -112,7 +111,7 @@ def update_event(event_id: int, event: EventUpdate, user_id: UUID = Depends(get_
 
             cursor.execute(
                 """
-                SELECT event_id, title, description, organizer_id
+                SELECT *
                 FROM public.events
                 WHERE event_id = %s
                 """,
@@ -123,3 +122,43 @@ def update_event(event_id: int, event: EventUpdate, user_id: UUID = Depends(get_
 
     return updated_event
 
+@router.delete("/events/{event_id}")
+def delete_event(event_id: int, user_id: UUID= Depends(get_authenticated_user_id)):
+    with get_connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT role
+                FROM public.users
+                WHERE user_id = %s
+                """, (user_id,),
+            )
+
+            user = cursor.fetchone()
+
+            if user is None or user["role"] != "supervisor":
+                raise HTTPException(status_code=403, detail="Only supervisors can delete events")
+
+            cursor.execute(
+                """
+                SELECT event_id
+                FROM public.events
+                WHERE event_id = %s
+                """,
+                (event_id,),
+            )
+
+            existing_event = cursor.fetchone()
+
+            if existing_event is None:
+                raise HTTPException(status_code=404, detail="Event not found")
+            
+            cursor.execute(
+                """
+                DELETE FROM public.events
+                WHERE event_id = %s
+                """,
+                (event_id,),
+            )
+
+    return {"message": "Event deleted successfully"}
