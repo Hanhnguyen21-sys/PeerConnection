@@ -35,6 +35,26 @@ def get_events():
     
     return events
 
+@router.get("/events/{event_id}")
+def get_event(event_id: int):
+    with get_connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                SELECT events.event_id, events.title, events.description, events.organizer_id, users.name AS organizer_name
+                FROM public.events
+                JOIN public.users ON events.organizer_id = users.user_id
+                WHERE events.evemt_id = %s
+                """, (event_id,),
+            )
+            
+            event = cursor.fetchone()
+
+            if event is None:
+                raise HTTPException(status_code=404, detail="Event not found")
+    
+    return event
+
 @router.post("/events")
 def create_event(event: EventCreate, user_id: UUID = Depends(get_authenticated_user_id)):
     with get_connection() as conn:
