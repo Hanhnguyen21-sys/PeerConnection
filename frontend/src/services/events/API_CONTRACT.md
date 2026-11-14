@@ -1,10 +1,12 @@
-# Proposed events API contract (not implemented yet)
+# Events API contract
 
-This is a **proposal** for the backend team. None of these endpoints exist in
-FastAPI today. The supervisor dashboard currently runs on demo data
-(`mockEventService.js`) that returns exactly these shapes. When the API is
-ready, set `VITE_EVENTS_DATA_SOURCE=api` and `httpEventService.js` will call it.
-It never falls back to demo data if a request fails.
+The **supervisor endpoints** below are implemented in FastAPI
+(`backend/app/routes/events.py`, `locations.py`, `reports.py`). Set
+`VITE_SUPERVISOR_DATA_SOURCE=api` to use them. The **peer educator endpoints**
+further down are still proposals; those screens run on demo data
+(`mockEventService.js`), which returns exactly these shapes. Once they exist,
+set `VITE_EVENTS_DATA_SOURCE=api` to use the backend for everything.
+`httpEventService.js` never falls back to demo data if a request fails.
 
 ## Conventions
 
@@ -190,8 +192,8 @@ CREATE UNIQUE INDEX registrations_one_active
   ON public.registrations (shift_id, user_id) WHERE status = 'active';
 ```
 
-These are suggestions only. The schema in `database/schema.sql` is owned by
-the backend team and was not changed.
+These tables are now in `database/schema.sql`; older databases get them from
+`database/add_event_status_and_registrations.sql`.
 
 ---
 

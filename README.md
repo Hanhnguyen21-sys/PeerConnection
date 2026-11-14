@@ -39,6 +39,8 @@ cd PeerConnection
 2. Open **SQL Editor** and run, in this order:
    1. [database/schema.sql](database/schema.sql) — creates the `users` and `locations` tables.
    2. [database/create_user_trigger.sql](database/create_user_trigger.sql) — automatically creates a `public.users` row whenever someone signs up.
+   3. [database/add_location_details.sql](database/add_location_details.sql) — adds `directions` and `map_url` to `locations`. Only needed if your tables were created before these columns were added to `schema.sql`; it's safe to run either way.
+   4. [database/add_event_status_and_registrations.sql](database/add_event_status_and_registrations.sql) — adds urgency, status and timestamps to `events`, and creates the `registrations` table. Same rule: only needed for older databases, safe to run either way.
 3. Collect the values you'll need for the `.env` files:
    - **Project URL** and **publishable key**: Project Settings → API
    - **Database host, port, name, user, password**: Project Settings → Database (or the **Connect** button)
@@ -66,7 +68,7 @@ pip install -r backend/requirements.txt
 Create the backend env file and fill in your Supabase values:
 
 ```bash
-cp backend/.env.example backend/.env
+cp -n backend/.env.example backend/.env
 ```
 
 | Variable | Description |
@@ -95,7 +97,7 @@ cd frontend && npm install
 Create the frontend env file:
 
 ```bash
-cp .env.example .env
+cp -n .env.example .env
 ```
 
 | Variable | Description |
@@ -103,6 +105,8 @@ cp .env.example .env
 | `VITE_SUPABASE_URL` | Your Supabase project URL |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Your Supabase publishable (anon) key |
 | `VITE_API_BASE_URL` | Backend URL (optional; defaults to `http://localhost:8000` in dev) |
+| `VITE_SUPERVISOR_DATA_SOURCE` | `api` makes the supervisor dashboard (events, locations, reports) save to Supabase through the backend; otherwise it's demo data in the browser |
+| `VITE_EVENTS_DATA_SOURCE` | `api` uses the backend for everything, including peer educator screens; leave unset until the educator endpoints exist |
 
 Start the dev server:
 
@@ -128,6 +132,17 @@ Open <http://localhost:5173>. The backend only allows CORS requests from this or
 | --- | --- | --- | --- |
 | GET | `/api/health` | None | Health check |
 | GET | `/api/me` | `Authorization: Bearer <supabase access token>` | Current user's profile (`user_id`, `name`, `email`, `role`) |
+| GET | `/api/events?search=&status=&from=&to=` | Supervisor | List events with schedule and staffing totals |
+| POST | `/api/events` | Supervisor | Create an event with its shifts |
+| GET | `/api/events/{id}` | Supervisor | Event with shifts, locations and sign-up counts |
+| PUT | `/api/events/{id}` | Supervisor | Update an event and its shifts |
+| POST | `/api/events/{id}/cancel` | Supervisor | Cancel an event (keeps shifts and sign-ups) |
+| DELETE | `/api/events/{id}` | Supervisor | Delete a draft event with no sign-ups |
+| GET | `/api/events/{id}/participants?shift_id=` | Supervisor | Active sign-ups for an event |
+| GET | `/api/reports/staffing?from=&to=` | Supervisor | Staffing report for a date range |
+| GET | `/api/locations?search=` | Supervisor | List locations with how many shifts use each |
+| POST | `/api/locations` | Supervisor | Create a location (`building`, `room_or_area`, `directions`, `map_url`) |
+| PUT | `/api/locations/{id}` | Supervisor | Update a location |
 
 ## Troubleshooting
 

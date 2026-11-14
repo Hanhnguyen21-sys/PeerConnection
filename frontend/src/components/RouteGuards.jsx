@@ -123,8 +123,10 @@ export function RequireRole({ role, children }) {
   }
 
   if (profile?.role !== role) {
-    // Supervisors always go back to their own dashboard.
-    if (profile?.role === "supervisor") return <Navigate to={ROLE_HOMES.supervisor} replace />;
+    // Known roles go back to their own dashboard. This also covers a stale
+    // post-sign-in redirect left behind by a different account's session.
+    const ownHome = ROLE_HOMES[profile?.role];
+    if (ownHome) return <Navigate to={ownHome} replace />;
     return (
       <GuardMessage
         title={`${ROLE_NAMES[role]} access required`}

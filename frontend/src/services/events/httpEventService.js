@@ -1,6 +1,7 @@
-// DRAFT client for the PROPOSED events API in API_CONTRACT.md. These endpoints
-// do not exist in the backend yet. It is only used when
-// VITE_EVENTS_DATA_SOURCE=api, and it never falls back to demo data on failure.
+// Client for the events API in API_CONTRACT.md. The supervisor endpoints exist
+// in the backend; the peer educator ones don't yet. It is used when
+// VITE_SUPERVISOR_DATA_SOURCE=api (supervisor screens) or
+// VITE_EVENTS_DATA_SOURCE=api (everything), and it never falls back to demo data.
 import { API_BASE_URL } from "../../lib/api";
 import { ServiceError } from "../errors";
 
