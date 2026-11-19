@@ -10,14 +10,17 @@ PeerConnection/
 │   │   ├── auth.py       Verifies Supabase access tokens
 │   │   ├── db.py         Postgres connection (psycopg)
 │   │   └── routes/       API routes
+│   ├── tests/            pytest suite (runs on a throwaway local Postgres)
 │   ├── requirements.txt
+│   ├── requirements-dev.txt
 │   └── .env.example
 ├── frontend/         React app (sign in / sign up / home)
 │   ├── src/
 │   └── .env.example
 └── database/         SQL to run in Supabase
     ├── schema.sql
-    └── create_user_trigger.sql
+    ├── create_user_trigger.sql
+    └── add_*.sql     upgrades for databases created earlier
 ```
 
 ## Prerequisites
@@ -41,6 +44,7 @@ cd PeerConnection
    2. [database/create_user_trigger.sql](database/create_user_trigger.sql) — automatically creates a `public.users` row whenever someone signs up.
    3. [database/add_location_details.sql](database/add_location_details.sql) — adds `directions` and `map_url` to `locations`. Only needed if your tables were created before these columns were added to `schema.sql`; it's safe to run either way.
    4. [database/add_event_status_and_registrations.sql](database/add_event_status_and_registrations.sql) — adds urgency, status and timestamps to `events`, and creates the `registrations` table. Same rule: only needed for older databases, safe to run either way.
+   5. [database/add_registration_rules_and_attendance.sql](database/add_registration_rules_and_attendance.sql) — adds `event_id` and `cancelled_at` to `registrations` (so the database enforces one active registration per user per event) and creates the `attendance` table. Same rule: only needed for older databases, safe to run either way. If two active registrations by the same person in the same event already exist, it stops with an error and changes nothing; cancel one of them and run it again.
 3. Collect the values you'll need for the `.env` files:
    - **Project URL** and **publishable key**: Project Settings → API
    - **Database host, port, name, user, password**: Project Settings → Database (or the **Connect** button)
@@ -106,7 +110,7 @@ cp -n .env.example .env
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Your Supabase publishable (anon) key |
 | `VITE_API_BASE_URL` | Backend URL (optional; defaults to `http://localhost:8000` in dev) |
 | `VITE_SUPERVISOR_DATA_SOURCE` | `api` makes the supervisor dashboard (events, locations, reports) save to Supabase through the backend; otherwise it's demo data in the browser |
-| `VITE_EVENTS_DATA_SOURCE` | `api` uses the backend for everything, including peer educator screens; leave unset until the educator endpoints exist |
+| `VITE_EVENTS_DATA_SOURCE` | `api` uses the backend for everything, including peer educator screens; leave unset until `GET /api/educator/events` and `GET /api/educator/events/{id}` exist (the registration endpoints are done) |
 
 Start the dev server:
 
@@ -125,6 +129,7 @@ Open <http://localhost:5173>. The backend only allows CORS requests from this or
 | `frontend/` | `npm run preview` | Serve the production build locally |
 | `frontend/` | `npm run lint` | Run ESLint |
 | `backend/` | `uvicorn app.main:app --reload` | Start the API with auto-reload |
+| `backend/` | `python -m pytest` | Run the backend tests (see below) |
 
 ## API endpoints
 
@@ -143,6 +148,29 @@ Open <http://localhost:5173>. The backend only allows CORS requests from this or
 | GET | `/api/locations?search=` | Supervisor | List locations with how many shifts use each |
 | POST | `/api/locations` | Supervisor | Create a location (`building`, `room_or_area`, `directions`, `map_url`) |
 | PUT | `/api/locations/{id}` | Supervisor | Update a location |
+| POST | `/api/shifts/{shift_id}/registrations` | Peer educator | Sign up for a shift (409 with a `code` when not allowed) |
+| POST | `/api/registrations/{id}/cancel` | Peer educator | Cancel your registration before the shift starts |
+| GET | `/api/me/registrations` | Peer educator | All your registrations, active and cancelled, with attendance |
+| GET | `/api/me/attendance` | Peer educator | Your participation history and credited minutes |
+| GET | `/api/shifts/{shift_id}/attendance` | Supervisor | Attendance roster for a shift |
+| PUT | `/api/shifts/{shift_id}/attendance` | Supervisor | Record attendance for several sign-ups at once |
+| PUT | `/api/registrations/{id}/attendance` | Supervisor | Mark one sign-up attended or absent |
+| DELETE | `/api/registrations/{id}/attendance` | Supervisor | Clear an attendance mark |
+| GET | `/api/attendance/summary?from=&to=` | Supervisor | Attendance totals per peer educator |
+
+## Backend tests
+
+The tests start their own throwaway PostgreSQL server, load `database/*.sql` into it, and delete it afterwards. They never connect to Supabase, and they don't read `backend/.env`.
+
+You need PostgreSQL installed locally (for example `brew install postgresql@16`); the tests find `initdb` and `pg_ctl` on your `PATH`, in the usual Homebrew/Linux locations, or in `PG_BIN`. Node.js is used for the tests that compare time formatting with the frontend; they're skipped without it.
+
+```bash
+pip install -r backend/requirements-dev.txt
+```
+
+```bash
+cd backend && python -m pytest
+```
 
 ## Troubleshooting
 
