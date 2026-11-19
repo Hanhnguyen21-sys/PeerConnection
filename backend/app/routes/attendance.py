@@ -108,7 +108,10 @@ def is_valid_date(value) -> bool:
 
 # ---------- Reading ----------
 
-def fetch_shift_with_event(cursor, shift_id, for_update=False):
+def fetch_shift_with_event(cursor, shift_id, lock_event=False):
+    # Locking only the event row (shared) keeps the event from being cancelled or
+    # edited meanwhile, without a lock-order question: update_event locks the
+    # event before its shifts.
     cursor.execute(
         """
         SELECT shifts.shift_id, shifts.event_id, shifts.shift_date, shifts.start_time,
@@ -120,7 +123,7 @@ def fetch_shift_with_event(cursor, shift_id, for_update=False):
         JOIN public.events ON events.event_id = shifts.event_id
         LEFT JOIN public.locations ON locations.location_id = shifts.location_id
         WHERE shifts.shift_id = %s
-        """ + (" FOR SHARE OF shifts, events" if for_update else ""),
+        """ + (" FOR SHARE OF events" if lock_event else ""),
         (shift_id,),
     )
     shift = cursor.fetchone()
@@ -252,7 +255,7 @@ def record_shift_attendance(
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             require_supervisor(cursor, user_id, "record attendance")
-            shift = fetch_shift_with_event(cursor, shift_id, for_update=True)
+            shift = fetch_shift_with_event(cursor, shift_id, lock_event=True)
 
             blocked = recording_blocked_reason(shift["event_status"], shift, campus_time.campus_now())
             if blocked:
