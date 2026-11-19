@@ -32,6 +32,8 @@ router = APIRouter(prefix="/api", tags=["Attendance"])
 
 PARTICIPATION_STATUSES = ("attended", "absent")
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# ASCII digits only: str.isdigit() also accepts characters such as "²" that int() rejects.
+WHOLE_NUMBER_PATTERN = re.compile(r"[0-9]{1,18}")
 
 
 # Values are loosely typed so bad input comes back as per-field messages
@@ -57,7 +59,7 @@ def parse_whole_number(value) -> Optional[int]:
     if isinstance(value, int):
         return value if value >= 0 else None
     text = str(value if value is not None else "").strip()
-    return int(text) if text.isdigit() else None
+    return int(text) if WHOLE_NUMBER_PATTERN.fullmatch(text) else None
 
 
 def clean_attendance(entry: AttendanceInput, max_minutes: int):
@@ -133,6 +135,26 @@ def fetch_shift_with_event(cursor, shift_id, lock_event=False):
 
 
 def fetch_registration_for_attendance(cursor, registration_id):
+    """The registration with its shift and event status, locked for a change.
+
+    Locks the event (shared) and then the registration, the same order as
+    update_event (event, shifts, then their registrations), so the event can't
+    be cancelled or edited until this transaction ends.
+    """
+    cursor.execute(
+        """
+        SELECT shifts.event_id
+        FROM public.registrations
+        JOIN public.shifts ON shifts.shift_id = registrations.shift_id
+        WHERE registrations.registration_id = %s
+        """,
+        (registration_id,),
+    )
+    found = cursor.fetchone()
+    if found is None:
+        raise ApiError(404, "Registration not found.")
+    cursor.execute("SELECT 1 FROM public.events WHERE event_id = %s FOR SHARE", (found["event_id"],))
+
     cursor.execute(
         """
         SELECT registrations.registration_id, registrations.status,
@@ -357,12 +379,11 @@ def get_attendance_summary(
     user_id: UUID = Depends(get_authenticated_user_id),
 ):
     """Attendance totals per peer educator for shifts dated in [from, to]."""
-    if not is_valid_date(from_date) or not is_valid_date(to_date) or from_date > to_date:
-        raise ApiError(422, "Choose a valid date range.")
-
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             require_supervisor(cursor, user_id, "view attendance")
+            if not is_valid_date(from_date) or not is_valid_date(to_date) or from_date > to_date:
+                raise ApiError(422, "Choose a valid date range.")
             cursor.execute(
                 """
                 SELECT users.user_id, users.name, users.email,
