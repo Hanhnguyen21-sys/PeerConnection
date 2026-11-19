@@ -1,6 +1,36 @@
 -- Registration rules and attendance. Run once in the Supabase SQL Editor, after
 -- add_event_status_and_registrations.sql. Safe to run more than once, and safe
 -- on databases created from the current schema.sql.
+--
+-- Everything runs in one transaction: if any step fails, nothing is changed.
+
+BEGIN;
+
+-- Stop before changing anything if existing data breaks the new rule
+-- "one active registration per user per event".
+DO $$
+DECLARE
+    conflicts TEXT;
+BEGIN
+    SELECT string_agg(
+               format('user %s in event %s (registrations %s)', user_id, event_id, registration_ids),
+               '; ')
+    INTO conflicts
+    FROM (
+        SELECT registrations.user_id, shifts.event_id,
+               string_agg(registrations.registration_id::text, ', '
+                          ORDER BY registrations.registration_id) AS registration_ids
+        FROM public.registrations
+        JOIN public.shifts ON shifts.shift_id = registrations.shift_id
+        WHERE registrations.status = 'active'
+        GROUP BY registrations.user_id, shifts.event_id
+        HAVING COUNT(*) > 1
+    ) AS duplicates;
+
+    IF conflicts IS NOT NULL THEN
+        RAISE EXCEPTION 'Nothing was changed: some people have more than one active registration in the same event: %. Keep one per event, cancel the others with UPDATE public.registrations SET status = ''cancelled'' WHERE registration_id IN (...), then run this file again.', conflicts;
+    END IF;
+END $$;
 
 -- Registrations: each one records its event, so the database itself enforces
 -- "one active registration per user per event". cancelled_at records when a
@@ -79,3 +109,5 @@ CREATE TABLE IF NOT EXISTS public.attendance (
 );
 
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
+
+COMMIT;
