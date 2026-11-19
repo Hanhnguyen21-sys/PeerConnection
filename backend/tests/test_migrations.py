@@ -9,6 +9,7 @@ Supabase databases created before each migration existed:
   (before add_registration_rules_and_attendance.sql)
 """
 import json
+import subprocess
 from uuid import uuid4
 
 import psycopg
@@ -185,20 +186,58 @@ def test_upgrade_fills_in_event_ids_and_keeps_history(database):
             )
 
 
+def add_conflicting_registration(conn, seeded):
+    """Makes the old data break the new rule: two active registrations, one person, one event."""
+    conn.execute(
+        "UPDATE public.registrations SET status = 'active' WHERE shift_id = %s",
+        (seeded["shifts"][1],),
+    )
+
+
 def test_upgrade_with_conflicting_old_data_fails_without_changing_anything(database):
-    """Two active registrations for one person in one event can't satisfy the new
-    rule. The whole script then fails and rolls back, as a single batch does in
-    the Supabase SQL Editor when the file is run as one script, so the database is left
-    exactly as it was."""
+    """The file runs as one transaction and checks the data first, so it stops
+    with a message listing the conflicts and leaves the database as it was."""
     seeded = build_legacy(database, "upgrade_conflict", LEGACY_V2)
     with connect(database, "upgrade_conflict") as conn:
-        conn.execute(
-            "UPDATE public.registrations SET status = 'active' WHERE shift_id = %s",
-            (seeded["shifts"][1],),
-        )
+        add_conflicting_registration(conn, seeded)
         before = catalog(conn)
 
-        with pytest.raises(psycopg.errors.UniqueViolation):
+        with pytest.raises(psycopg.errors.RaiseException) as error:
             run_sql_file(conn, MIGRATION)
+        conn.execute("ROLLBACK")  # the SQL Editor ends a failed run the same way
 
+        assert "Nothing was changed" in str(error.value)
+        assert "registrations 1, 2" in str(error.value)
+        assert_same_schema(catalog(conn), before)
+
+
+def run_psql(cluster, dbname, path):
+    """Runs a file the way `psql -f` does: one statement at a time, carrying on after errors."""
+    return subprocess.run(
+        [cluster["bin"] / "psql", "-h", cluster["host"], "-p", str(cluster["port"]), "-U", cluster["user"],
+         "-d", dbname, "-X", "-q", "-f", str(path)],
+        capture_output=True, text=True, timeout=60,
+    )
+
+
+def test_psql_upgrade_matches_a_fresh_install(database, fresh_catalog):
+    build_legacy(database, "upgrade_psql", LEGACY_V2)
+    for _ in range(2):
+        result = run_psql(database, "upgrade_psql", MIGRATION)
+        assert result.returncode == 0 and "ERROR" not in result.stderr, result.stderr
+    with connect(database, "upgrade_psql") as conn:
+        assert_same_schema(catalog(conn), fresh_catalog)
+
+
+def test_psql_upgrade_with_conflicting_old_data_changes_nothing(database):
+    """psql keeps going after an error, so only the transaction keeps this all-or-nothing."""
+    seeded = build_legacy(database, "upgrade_psql_conflict", LEGACY_V2)
+    with connect(database, "upgrade_psql_conflict") as conn:
+        add_conflicting_registration(conn, seeded)
+        before = catalog(conn)
+
+    result = run_psql(database, "upgrade_psql_conflict", MIGRATION)
+
+    assert "Nothing was changed" in result.stderr
+    with connect(database, "upgrade_psql_conflict") as conn:
         assert_same_schema(catalog(conn), before)

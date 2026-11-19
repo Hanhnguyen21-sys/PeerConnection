@@ -1,12 +1,16 @@
-"""Concurrent sign-ups against a real Postgres: no overbooking, no double booking.
+"""Concurrent requests against a real Postgres: no overbooking, no double
+booking, no deadlocks, and nothing written to an event after it's cancelled.
 
 Each test starts many sign-ups at the same moment (threading.Barrier), each in
 its own database transaction. ``slow_clock`` makes every sign-up pause *inside*
 its transaction, after reading the counts and before inserting, so without the
 row locks the requests would all see the same counts and the tests would fail.
+The test cluster records commit timestamps, so tests can also check the order
+transactions committed in.
 """
 import threading
 import time
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
@@ -16,18 +20,41 @@ import uvicorn
 from app import campus_time
 from app.errors import ApiError
 from app.main import app
-from app.routes import registrations
-from app.routes import events
+from app.routes import attendance, events, registrations
 from helpers import DEFAULT_NOW, fake_authenticated_user_id, free_port
+
+DURING_THE_SHIFT = datetime(2030, 1, 20, 11, 0)  # the factory's default shift is 10:00-12:00 that day
+
+
+def use_slow_clock(monkeypatch, now):
+    def slow_now():
+        time.sleep(0.05)
+        return now
+
+    monkeypatch.setattr(campus_time, "campus_now", slow_now)
 
 
 @pytest.fixture
 def slow_clock(monkeypatch):
-    def slow_now():
-        time.sleep(0.05)
-        return DEFAULT_NOW
+    use_slow_clock(monkeypatch, DEFAULT_NOW)
 
-    monkeypatch.setattr(campus_time, "campus_now", slow_now)
+
+def committed_after_cancellation(make, table, event_id):
+    """Rows of ``table`` for the event whose transaction committed after the event's cancellation."""
+    join = {
+        "registrations": "registrations.event_id = events.event_id",
+        "attendance": "attendance.registration_id IN (SELECT registration_id FROM public.registrations"
+                      " WHERE registrations.event_id = events.event_id)",
+    }[table]
+    return make.one(
+        f"""
+        SELECT COUNT(*)::int AS n
+        FROM public.{table}, public.events
+        WHERE events.event_id = %s AND {join}
+          AND pg_xact_commit_timestamp({table}.xmin) > pg_xact_commit_timestamp(events.xmin)
+        """,
+        (event_id,),
+    )["n"]
 
 
 def race(calls):
@@ -123,7 +150,7 @@ def test_mixed_crowd_never_exceeds_any_capacity(make, slow_clock):
 
 def test_sign_ups_while_the_supervisor_cancels_the_event(make, slow_clock):
     """Uses the real cancel_event. Nothing deadlocks, and every sign-up either
-    lands before the cancellation or is refused with event_cancelled."""
+    commits before the cancellation or is refused with event_cancelled."""
     supervisor = make.supervisor()
     event = make.event(organizer=supervisor)
     shift = make.shift(event, capacity=50)
@@ -137,6 +164,53 @@ def test_sign_ups_while_the_supervisor_cancels_the_event(make, slow_clock):
     assert results.count("created") + results.count("event_cancelled") == 12
     assert results.count("created") == active_count(make, shift_id=shift)
     assert make.one("SELECT status FROM public.events WHERE event_id = %s", (event,))["status"] == "cancelled"
+    assert committed_after_cancellation(make, "registrations", event) == 0
+
+
+def test_attendance_while_the_supervisor_cancels_the_event(make, monkeypatch):
+    """Marks commit before the cancellation or are refused; cancelled events stay read-only."""
+    supervisor = make.supervisor()
+    event = make.event(organizer=supervisor)
+    shift = make.shift(event, capacity=20)
+    registration_ids = [make.registration(make.user(), shift) for _ in range(10)]
+    use_slow_clock(monkeypatch, DURING_THE_SHIFT)
+
+    def mark(registration_id):
+        body = attendance.AttendanceInput(participation_status="attended")
+        return lambda: attendance.record_attendance(registration_id, body, user_id=supervisor)
+
+    def cancel():
+        events.cancel_event(event, user_id=supervisor)
+
+    *results, _ = race([mark(registration_id) for registration_id in registration_ids] + [cancel])
+
+    assert set(results) <= {"created", "This event was cancelled, so attendance can't be changed."}
+    assert results.count("created") == make.one("SELECT COUNT(*)::int AS n FROM public.attendance")["n"]
+    assert committed_after_cancellation(make, "attendance", event) == 0
+
+
+def test_marking_one_registration_many_times_at_once(make, monkeypatch):
+    """Single and whole-shift marks racing on the same registration leave exactly one record."""
+    supervisor = make.supervisor()
+    shift = make.shift()
+    registration_id = make.registration(make.user(), shift)
+    use_slow_clock(monkeypatch, DURING_THE_SHIFT)
+
+    def single(status):
+        body = attendance.AttendanceInput(participation_status=status)
+        return lambda: attendance.record_attendance(registration_id, body, user_id=supervisor)
+
+    def whole_shift(status):
+        body = attendance.RosterInput(records=[{"registration_id": registration_id, "participation_status": status}])
+        return lambda: attendance.record_shift_attendance(shift, body, user_id=supervisor)
+
+    results = race([single("attended"), single("absent")] * 4 + [whole_shift("attended"), whole_shift("absent")] * 2)
+
+    assert set(results) == {"created"}
+    rows = make.all("SELECT participation_status, credited_minutes FROM public.attendance")
+    assert len(rows) == 1
+    assert rows[0] in ({"participation_status": "attended", "credited_minutes": 120},
+                       {"participation_status": "absent", "credited_minutes": 0})
 
 
 def test_sign_ups_while_the_supervisor_lowers_capacity(make, slow_clock):

@@ -129,6 +129,15 @@ class TestMark:
              "Enter a whole number of minutes, 0 or more."),
             ({"participation_status": "attended", "credited_minutes": True}, "credited_minutes",
              "Enter a whole number of minutes, 0 or more."),
+            # str.isdigit() accepts these, but they aren't plain whole numbers.
+            ({"participation_status": "attended", "credited_minutes": "²"}, "credited_minutes",
+             "Enter a whole number of minutes, 0 or more."),
+            ({"participation_status": "attended", "credited_minutes": "١٢"}, "credited_minutes",
+             "Enter a whole number of minutes, 0 or more."),
+            ({"participation_status": "attended", "credited_minutes": "9" * 5000}, "credited_minutes",
+             "Enter a whole number of minutes, 0 or more."),
+            ({"participation_status": "attended", "credited_minutes": 10 ** 30}, "credited_minutes",
+             "Credited minutes can't be more than the shift's 120 minutes."),
             ({"participation_status": "absent", "credited_minutes": 30}, "credited_minutes",
              "Absent participants can't be credited minutes."),
         ],
@@ -225,16 +234,20 @@ class TestMarkShift:
             {"registration_id": registrations["Ben"], "participation_status": "absent"},
             {"registration_id": registrations["Ana"], "participation_status": "absent"},
             {"registration_id": "abc", "participation_status": "absent"},
+            {"registration_id": "²", "participation_status": "absent"},
+            {"registration_id": "9" * 5000, "participation_status": "absent"},
         ])
 
         body = assert_error(response, 422, detail="Please fix the highlighted fields.")
         errors = body["field_errors"]["records"]
-        assert set(errors) == {"1", "2", "3", "4", "5"}
+        assert set(errors) == {"1", "2", "3", "4", "5", "6", "7"}
         assert errors["1"] == {"participation_status": 'Choose "attended" or "absent".'}
         assert errors["2"] == {"registration_id": "This registration isn't on this shift."}
         assert errors["3"] == {"registration_id": "Cancelled registrations can't have attendance."}
         assert errors["4"] == {"registration_id": "This registration is listed more than once."}
         assert errors["5"] == {"registration_id": "This registration isn't on this shift."}
+        assert errors["6"] == {"registration_id": "This registration isn't on this shift."}
+        assert errors["7"] == {"registration_id": "This registration isn't on this shift."}
         assert make.one("SELECT COUNT(*) AS n FROM public.attendance")["n"] == 0
 
     def test_needs_at_least_one_record(self, api, signed_up):
@@ -377,9 +390,9 @@ class TestSummary:
         assert_error(api.get("/api/attendance/summary", make.supervisor(), params=params), 422,
                      detail="Choose a valid date range.")
 
-    def test_peer_educators_get_403(self, api, make):
-        response = api.get("/api/attendance/summary", make.user(), params={"from": "2030-01-01", "to": "2030-01-31"})
-        assert_error(response, 403)
+    @pytest.mark.parametrize("params", [{"from": "2030-01-01", "to": "2030-01-31"}, {"from": "bad"}])
+    def test_peer_educators_get_403(self, api, make, params):
+        assert_error(api.get("/api/attendance/summary", make.user(), params=params), 403)
 
 
 # ---------- Database rules ----------

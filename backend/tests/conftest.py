@@ -58,7 +58,9 @@ def pg_cluster():
     )
     options = (
         f"-p {port} -c listen_addresses={TEST_DB_HOST} -c unix_socket_directories='' "
-        "-c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200"
+        "-c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200 "
+        # Lets the concurrency tests check the order transactions committed in.
+        "-c track_commit_timestamp=on"
     )
     subprocess.run(
         [pg_bin / "pg_ctl", "-D", data_dir, "-l", workdir / "postgres.log", "-w", "-o", options, "start"],
@@ -67,7 +69,7 @@ def pg_cluster():
     )
     os.environ["DB_PORT"] = str(port)
     try:
-        yield {"host": TEST_DB_HOST, "port": port, "user": "postgres", "workdir": workdir}
+        yield {"host": TEST_DB_HOST, "port": port, "user": "postgres", "workdir": workdir, "bin": pg_bin}
     finally:
         subprocess.run([pg_bin / "pg_ctl", "-D", data_dir, "-m", "immediate", "stop"], capture_output=True)
         shutil.rmtree(workdir, ignore_errors=True)
