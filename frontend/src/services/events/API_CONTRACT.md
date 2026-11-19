@@ -197,12 +197,13 @@ These tables are now in `database/schema.sql`; older databases get them from
 
 ---
 
-# Peer educator endpoints (proposed, not implemented)
+# Peer educator endpoints (implemented in `backend/app/routes/educator.py`)
 
 All require a valid Bearer token and `role = 'peer_educator'` (403 otherwise).
 The user is always the authenticated user: no endpoint accepts a `user_id`.
-The demo implementation is in `mockEventService.js`, and `httpEventService.js`
-holds the draft client.
+The demo implementation is in `mockEventService.js`; `httpEventService.js`
+calls the backend. The `registrations` table has no `cancelled_at` column yet,
+so the API returns `cancelled_at: null` for cancelled registrations.
 
 | Service function | Method & path | Body / query | Returns |
 | --- | --- | --- | --- |

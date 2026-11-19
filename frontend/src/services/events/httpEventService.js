@@ -1,5 +1,5 @@
-// Client for the events API in API_CONTRACT.md. The supervisor endpoints exist
-// in the backend; the peer educator ones don't yet. It is used when
+// Client for the events API in API_CONTRACT.md. Both the supervisor and the
+// peer educator endpoints exist in the backend. It is used when
 // VITE_SUPERVISOR_DATA_SOURCE=api (supervisor screens) or
 // VITE_EVENTS_DATA_SOURCE=api (everything), and it never falls back to demo data.
 import { API_BASE_URL } from "../../lib/api";
@@ -57,7 +57,7 @@ export const updateLocation = (id, input, ctx) =>
   request(`/api/locations/${id}`, ctx, { method: "PUT", body: input });
 export const getReport = (params, ctx) => request("/api/reports/staffing", ctx, { query: params });
 
-// Peer educator endpoints (proposed).
+// Peer educator endpoints.
 export const getAvailableEvents = (params, ctx) =>
   request("/api/educator/events", ctx, { query: params });
 export const getEducatorEvent = (id, ctx) => request(`/api/educator/events/${id}`, ctx);
