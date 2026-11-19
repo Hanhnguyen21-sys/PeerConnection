@@ -303,10 +303,15 @@ def register_for_shift(shift_id: int, user_id: UUID = Depends(get_authenticated_
                     """,
                     (shift_id, event["event_id"], user_id),
                 )
-            except psycopg.errors.UniqueViolation:
-                # The partial unique indexes back up the rules above; with the locks
-                # held this shouldn't happen, but never turn it into a 500.
-                raise ApiError(409, ELIGIBILITY_MESSAGES["registered_other_shift"], code="registered_other_shift")
+            except psycopg.errors.UniqueViolation as error:
+                # The partial unique indexes back up the rules above. With the locks
+                # held this shouldn't happen, but it must never become a 500.
+                code = (
+                    "registered"
+                    if error.diag.constraint_name == "registrations_one_active"
+                    else "registered_other_shift"
+                )
+                raise ApiError(409, ELIGIBILITY_MESSAGES[code], code=code)
 
             registration_id = cursor.fetchone()["registration_id"]
             return fetch_registration(cursor, registration_id)
