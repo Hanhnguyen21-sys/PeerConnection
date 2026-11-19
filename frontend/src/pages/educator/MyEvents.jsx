@@ -41,7 +41,8 @@ function groupRegistrations(list) {
   const latestByEvent = new Map();
   for (const r of userCancelled) {
     const current = latestByEvent.get(r.event.event_id);
-    if (!current || (r.cancelled_at ?? "") > (current.cancelled_at ?? "")) {
+    // The API may not send cancelled_at yet; fall back to when the registration was made.
+    if (!current || (r.cancelled_at ?? r.created_at) > (current.cancelled_at ?? current.created_at)) {
       latestByEvent.set(r.event.event_id, r);
     }
   }
@@ -56,7 +57,9 @@ function groupRegistrations(list) {
     cancelled: [...eventCancelled, ...shownCancellations].sort(byShiftDesc),
     history: userCancelled
       .filter((r) => !shownIds.has(r.registration_id))
-      .sort((a, b) => (b.cancelled_at ?? "").localeCompare(a.cancelled_at ?? "")),
+      .sort((a, b) =>
+        (b.cancelled_at ?? b.created_at).localeCompare(a.cancelled_at ?? a.created_at),
+      ),
   };
 }
 

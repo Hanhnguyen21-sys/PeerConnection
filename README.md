@@ -110,7 +110,7 @@ cp -n .env.example .env
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Your Supabase publishable (anon) key |
 | `VITE_API_BASE_URL` | Backend URL (optional; defaults to `http://localhost:8000` in dev) |
 | `VITE_SUPERVISOR_DATA_SOURCE` | `api` makes the supervisor dashboard (events, locations, reports) save to Supabase through the backend; otherwise it's demo data in the browser |
-| `VITE_EVENTS_DATA_SOURCE` | `api` uses the backend for everything, including peer educator screens; leave unset until `GET /api/educator/events` and `GET /api/educator/events/{id}` exist (the registration endpoints are done) |
+| `VITE_EVENTS_DATA_SOURCE` | `api` uses the backend for everything, including peer educator screens |
 
 Start the dev server:
 
@@ -148,6 +148,8 @@ Open <http://localhost:5173>. The backend only allows CORS requests from this or
 | GET | `/api/locations?search=` | Supervisor | List locations with how many shifts use each |
 | POST | `/api/locations` | Supervisor | Create a location (`building`, `room_or_area`, `directions`, `map_url`) |
 | PUT | `/api/locations/{id}` | Supervisor | Update a location |
+| GET | `/api/educator/events?search=&from=&to=&availability=` | Peer educator | Events you can sign up for |
+| GET | `/api/educator/events/{id}` | Peer educator | One event with each shift's eligibility |
 | POST | `/api/shifts/{shift_id}/registrations` | Peer educator | Sign up for a shift (409 with a `code` when not allowed) |
 | POST | `/api/registrations/{id}/cancel` | Peer educator | Cancel your registration before the shift starts |
 | GET | `/api/me/registrations` | Peer educator | All your registrations, active and cancelled, with attendance |

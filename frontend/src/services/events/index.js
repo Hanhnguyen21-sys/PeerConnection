@@ -1,8 +1,8 @@
 // Chooses the event data implementation.
 // - VITE_SUPERVISOR_DATA_SOURCE=api: the supervisor dashboard (events,
 //   participants, locations, reports) uses the backend; peer educator screens
-//   stay on demo data until their endpoints exist.
-// - VITE_EVENTS_DATA_SOURCE=api: everything uses the backend.
+//   stay on demo data.
+// - VITE_EVENTS_DATA_SOURCE=api: everything, including peer educator screens, uses the backend.
 // Otherwise everything is demo data saved in the browser.
 import * as demoService from "./mockEventService";
 import * as apiService from "./httpEventService";

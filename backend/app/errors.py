@@ -5,7 +5,8 @@ from fastapi.responses import JSONResponse
 
 
 class ApiError(Exception):
-    """An error the frontend can show: a message plus optional per-field messages."""
+    """An error the frontend can show: a message plus optional per-field messages
+    and an optional machine-readable code (for example "full" or "conflict")."""
 
     def __init__(
         self,
@@ -17,7 +18,6 @@ class ApiError(Exception):
         self.status_code = status_code
         self.message = message
         self.field_errors = field_errors
-        # Machine-readable reason, e.g. a registration eligibility code ("full", "conflict").
         self.code = code
 
 

@@ -37,6 +37,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import campus_time  # noqa: E402
 from app.auth import get_authenticated_user_id  # noqa: E402
 from app.main import app  # noqa: E402
+from app.routes import educator as educator_routes  # noqa: E402
+from app.routes import events as events_routes  # noqa: E402
 from helpers import DEFAULT_NOW, TEST_DB_HOST, fake_authenticated_user_id, free_port  # noqa: E402
 from pg import SETUP_FILES, connect, create_database, find_pg_bin  # noqa: E402
 
@@ -112,9 +114,20 @@ class Clock:
 
 @pytest.fixture(autouse=True)
 def clock(monkeypatch):
-    """Freezes campus time for the registration and attendance code."""
+    """Freezes campus time for the whole app.
+
+    registrations.py and attendance.py read app.campus_time.campus_now();
+    events.py and educator.py have their own campus_now() returning
+    ("YYYY-MM-DD", "HH:MM"). All of them see the same frozen time.
+    """
     frozen = Clock(DEFAULT_NOW)
+
+    def as_strings():
+        return frozen.now.strftime("%Y-%m-%d"), frozen.now.strftime("%H:%M")
+
     monkeypatch.setattr(campus_time, "campus_now", lambda: frozen.now)
+    monkeypatch.setattr(events_routes, "campus_now", as_strings)
+    monkeypatch.setattr(educator_routes, "campus_now", as_strings)
     return frozen
 
 

@@ -235,13 +235,8 @@ def get_my_registrations(user_id: UUID = Depends(get_authenticated_user_id)):
 def register_for_shift(shift_id: int, user_id: UUID = Depends(get_authenticated_user_id)):
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
-            require_peer_educator(cursor, user_id)
-
             # Lock 1: this user's sign-ups run one at a time (one per event, no overlaps).
-            cursor.execute(
-                "SELECT user_id FROM public.users WHERE user_id = %s FOR NO KEY UPDATE",
-                (user_id,),
-            )
+            require_peer_educator(cursor, user_id, lock=True)
 
             cursor.execute("SELECT event_id FROM public.shifts WHERE shift_id = %s", (shift_id,))
             found = cursor.fetchone()

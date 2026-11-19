@@ -2,13 +2,13 @@
 
 The **supervisor endpoints** below are implemented in FastAPI
 (`backend/app/routes/events.py`, `locations.py`, `reports.py`). Set
-`VITE_SUPERVISOR_DATA_SOURCE=api` to use them. Of the **peer educator
-endpoints** further down, the registration ones (sign up, cancel, my
-registrations) are implemented in `backend/app/routes/registrations.py`; the
-two event-browsing ones are still proposals. Until those exist the peer
-educator screens run on demo data (`mockEventService.js`), which returns
-exactly these shapes; then set `VITE_EVENTS_DATA_SOURCE=api` to use the
-backend for everything. **Attendance** (last section) is implemented in
+`VITE_SUPERVISOR_DATA_SOURCE=api` to use them. The **peer educator
+endpoints** further down are implemented too: browsing events in
+`backend/app/routes/educator.py`, and signing up, cancelling and "my
+registrations" in `backend/app/routes/registrations.py`. Set
+`VITE_EVENTS_DATA_SOURCE=api` to use the backend for everything; otherwise the
+peer educator screens run on demo data (`mockEventService.js`), which returns
+exactly these shapes. **Attendance** (last section) is implemented in
 `backend/app/routes/attendance.py`.
 `httpEventService.js` never falls back to demo data if a request fails.
 
@@ -201,25 +201,25 @@ These tables are now in `database/schema.sql`; older databases get them from
 
 ---
 
-# Peer educator endpoints
+# Peer educator endpoints (implemented)
 
 All require a valid Bearer token and `role = 'peer_educator'` (403 otherwise).
 The user is always the authenticated user: no endpoint accepts a `user_id`.
-The demo implementation is in `mockEventService.js`, and `httpEventService.js`
-holds the draft client.
+The demo implementation is in `mockEventService.js`; `httpEventService.js`
+calls the backend. Cancelled registrations carry `cancelled_at` (registrations
+cancelled before `add_registration_rules_and_attendance.sql` have `null`).
 
-| Service function | Method & path | Body / query | Returns | Status |
+| Service function | Method & path | Body / query | Returns | Backend |
 | --- | --- | --- | --- | --- |
-| `getAvailableEvents` | `GET /api/educator/events` | `?search=&from=&to=&availability=all\|open` | `AvailableEvent[]` | proposed |
-| `getEducatorEvent` | `GET /api/educator/events/{id}` | | `EducatorEventDetail` (404 for drafts/unknown) | proposed |
-| `getMyRegistrations` | `GET /api/me/registrations` | | `MyRegistration[]` (active and cancelled) | implemented |
-| `registerForShift` | `POST /api/shifts/{shift_id}/registrations` | | `MyRegistration` (201) | implemented |
-| `cancelRegistration` | `POST /api/registrations/{id}/cancel` | | `MyRegistration` | implemented |
+| `getAvailableEvents` | `GET /api/educator/events` | `?search=&from=&to=&availability=all\|open` | `AvailableEvent[]` | `educator.py` |
+| `getEducatorEvent` | `GET /api/educator/events/{id}` | | `EducatorEventDetail` (404 for drafts/unknown) | `educator.py` |
+| `getMyRegistrations` | `GET /api/me/registrations` | | `MyRegistration[]` (active and cancelled) | `registrations.py` |
+| `registerForShift` | `POST /api/shifts/{shift_id}/registrations` | | `MyRegistration` (201) | `registrations.py` |
+| `cancelRegistration` | `POST /api/registrations/{id}/cancel` | | `MyRegistration` | `registrations.py` |
 
-For the two event endpoints, `shift_eligibility()` and
-`active_registrations_for_user()` in `backend/app/routes/registrations.py`
-compute each shift's `eligibility` with the same rules the sign-up endpoint
-enforces.
+`educator.py` labels each shift with the same eligibility codes and precedence
+that the sign-up endpoint in `registrations.py` enforces inside its
+transaction; the tests check that the two agree.
 
 ```js
 AvailableEvent = {

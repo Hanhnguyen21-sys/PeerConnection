@@ -39,8 +39,11 @@ def test_the_client_file_parses():
     assert len(calls) >= 16, calls
 
 
-@pytest.mark.parametrize("function", ["registerForShift", "cancelRegistration", "getMyRegistrations"])
-def test_registration_functions_have_a_backend_route(function):
+@pytest.mark.parametrize(
+    "function",
+    ["getAvailableEvents", "getEducatorEvent", "registerForShift", "cancelRegistration", "getMyRegistrations"],
+)
+def test_peer_educator_functions_have_a_backend_route(function):
     assert frontend_calls()[function] in backend_routes()
 
 
@@ -49,3 +52,13 @@ def test_expected_paths():
     assert calls["registerForShift"] == ("POST", "/api/shifts/{}/registrations")
     assert calls["cancelRegistration"] == ("POST", "/api/registrations/{}/cancel")
     assert calls["getMyRegistrations"] == ("GET", "/api/me/registrations")
+
+
+def test_no_route_is_defined_twice():
+    """Two routers serving the same method and path means one silently wins."""
+    seen = {}
+    for route in app.routes:
+        for method in getattr(route, "methods", ()):
+            key = (method, route.path)
+            assert key not in seen, f"{method} {route.path} is defined twice"
+            seen[key] = route
