@@ -2,10 +2,14 @@
 
 The **supervisor endpoints** below are implemented in FastAPI
 (`backend/app/routes/events.py`, `locations.py`, `reports.py`). Set
-`VITE_SUPERVISOR_DATA_SOURCE=api` to use them. The **peer educator endpoints**
-further down are still proposals; those screens run on demo data
-(`mockEventService.js`), which returns exactly these shapes. Once they exist,
-set `VITE_EVENTS_DATA_SOURCE=api` to use the backend for everything.
+`VITE_SUPERVISOR_DATA_SOURCE=api` to use them. The **peer educator
+endpoints** further down are implemented too: browsing events in
+`backend/app/routes/educator.py`, and signing up, cancelling and "my
+registrations" in `backend/app/routes/registrations.py`. Set
+`VITE_EVENTS_DATA_SOURCE=api` to use the backend for everything; otherwise the
+peer educator screens run on demo data (`mockEventService.js`), which returns
+exactly these shapes. **Attendance** (last section) is implemented in
+`backend/app/routes/attendance.py`.
 `httpEventService.js` never falls back to demo data if a request fails.
 
 ## Conventions
@@ -197,21 +201,25 @@ These tables are now in `database/schema.sql`; older databases get them from
 
 ---
 
-# Peer educator endpoints (implemented in `backend/app/routes/educator.py`)
+# Peer educator endpoints (implemented)
 
 All require a valid Bearer token and `role = 'peer_educator'` (403 otherwise).
 The user is always the authenticated user: no endpoint accepts a `user_id`.
 The demo implementation is in `mockEventService.js`; `httpEventService.js`
-calls the backend. The `registrations` table has no `cancelled_at` column yet,
-so the API returns `cancelled_at: null` for cancelled registrations.
+calls the backend. Cancelled registrations carry `cancelled_at` (registrations
+cancelled before `add_registration_rules_and_attendance.sql` have `null`).
 
-| Service function | Method & path | Body / query | Returns |
-| --- | --- | --- | --- |
-| `getAvailableEvents` | `GET /api/educator/events` | `?search=&from=&to=&availability=all\|open` | `AvailableEvent[]` |
-| `getEducatorEvent` | `GET /api/educator/events/{id}` | | `EducatorEventDetail` (404 for drafts/unknown) |
-| `getMyRegistrations` | `GET /api/me/registrations` | | `MyRegistration[]` (active and cancelled) |
-| `registerForShift` | `POST /api/shifts/{shift_id}/registrations` | | `MyRegistration` (201) |
-| `cancelRegistration` | `POST /api/registrations/{id}/cancel` | | `MyRegistration` |
+| Service function | Method & path | Body / query | Returns | Backend |
+| --- | --- | --- | --- | --- |
+| `getAvailableEvents` | `GET /api/educator/events` | `?search=&from=&to=&availability=all\|open` | `AvailableEvent[]` | `educator.py` |
+| `getEducatorEvent` | `GET /api/educator/events/{id}` | | `EducatorEventDetail` (404 for drafts/unknown) | `educator.py` |
+| `getMyRegistrations` | `GET /api/me/registrations` | | `MyRegistration[]` (active and cancelled) | `registrations.py` |
+| `registerForShift` | `POST /api/shifts/{shift_id}/registrations` | | `MyRegistration` (201) | `registrations.py` |
+| `cancelRegistration` | `POST /api/registrations/{id}/cancel` | | `MyRegistration` | `registrations.py` |
+
+`educator.py` labels each shift with the same eligibility codes and precedence
+that the sign-up endpoint in `registrations.py` enforces inside its
+transaction; the tests check that the two agree.
 
 ```js
 AvailableEvent = {
@@ -251,6 +259,8 @@ MyRegistration = {
   event: { event_id, title, status, is_urgent, cancelled_at },
   shift: { shift_id, shift_date, start_time, end_time },
   location: Location | null,
+  // Added by the backend; null until a supervisor records attendance.
+  attendance: { attendance_id, participation_status: "attended" | "absent", credited_minutes } | null,
 }
 ```
 
@@ -261,14 +271,17 @@ shows `detail` as-is and treats the server's answer as authoritative.
 ## Registration rules (the backend must enforce these inside one transaction)
 
 1. Registration is immediate, with no approval step.
-2. A user can have only one active registration per event.
+2. A user can have only one active registration per event. Registrations
+   store their `event_id`, and the unique index
+   `registrations_one_active_per_event` enforces this in the database too.
 3. A user can't hold overlapping active registrations across events. Shifts
    overlap when `new_start < existing_end AND new_end > existing_start` on the
    same date, so back-to-back shifts are allowed. Registrations on cancelled
    events don't count.
 4. Active registrations can't exceed the shift's capacity. Lock the shift row
    or use a guarded `INSERT … SELECT` so two sign-ups can't both take the
-   last spot.
+   last spot. (The backend locks the user, then the event `FOR SHARE`, then
+   the shift `FOR UPDATE`, and counts after the locks are held.)
 5. Cancelling sets `status = 'cancelled'` and `cancelled_at`. The row is
    never deleted, which frees the spot. Registering again creates a new row;
    a cancelled row is never reactivated.
@@ -285,5 +298,83 @@ shows `detail` as-is and treats the server's answer as authoritative.
   event status explains them, and "My Events" lists them under Cancelled as
   "Event cancelled", separate from cancellations the user made. Alternatively,
   should the backend mark these registrations as cancelled, with a reason?
-- **No attendance tracking.** Past registrations are labelled "Past
-  registration". Attendance, absences and credited minutes are not inferred.
+- **Attendance is recorded by supervisors**, not inferred. Past registrations
+  are labelled "Past registration" until a supervisor marks them; see
+  Attendance below.
+
+---
+
+# Attendance
+
+Implemented in `backend/app/routes/attendance.py`. The table follows the
+project proposal: `Attendance(AttendanceID, RegistrationID, ParticipationStatus,
+CreditedMinutes)`. The rules marked *proposed* are defaults the team can change.
+
+| Who | Method & path | Body / query | Returns |
+| --- | --- | --- | --- |
+| Supervisor | `GET /api/shifts/{shift_id}/attendance` | | `ShiftRoster` |
+| Supervisor | `PUT /api/shifts/{shift_id}/attendance` | `{ records: AttendanceInput & { registration_id }[] }` | `ShiftRoster` |
+| Supervisor | `PUT /api/registrations/{id}/attendance` | `AttendanceInput` | `Attendance` |
+| Supervisor | `DELETE /api/registrations/{id}/attendance` | | `204` |
+| Supervisor | `GET /api/attendance/summary` | `?from=YYYY-MM-DD&to=YYYY-MM-DD` | `AttendanceSummary` |
+| Peer educator | `GET /api/me/attendance` | | `MyAttendance` |
+
+```js
+AttendanceInput = {
+  participation_status: "attended" | "absent",
+  credited_minutes?: number,  // whole minutes; defaults to the shift's length when attended, always 0 when absent
+}
+
+Attendance = { attendance_id, registration_id, participation_status, credited_minutes }
+
+ShiftRoster = {
+  shift: { shift_id, shift_date, start_time, end_time, capacity, duration_minutes,
+           has_started, has_ended, location: Location | null },
+  event: { event_id, title, status },
+  can_record: boolean,
+  blocked_reason: string | null,  // why can_record is false
+  summary: { registered, attended, absent, unmarked, credited_minutes },
+  roster: Array<{                 // active registrations only, by name
+    registration_id, registered_at,
+    user: { user_id, name, email },
+    attendance: { attendance_id, participation_status, credited_minutes } | null,
+  }>,
+}
+
+MyAttendance = {
+  summary: { shifts_attended, shifts_absent, credited_minutes },
+  records: Array<{ attendance_id, registration_id, participation_status, credited_minutes,
+                   event: { event_id, title },
+                   shift: { shift_id, shift_date, start_time, end_time },
+                   location: Location | null }>,  // newest shift first
+}
+
+AttendanceSummary = {
+  range: { from, to },
+  totals: { peer_educators, shifts_attended, shifts_absent, credited_minutes },
+  rows: Array<{ user: { user_id, name, email }, shifts_attended, shifts_absent, credited_minutes }>,
+}
+```
+
+Validation errors use the usual `{ detail, field_errors }` shape. For a
+single record, `field_errors` is `{ participation_status?, credited_minutes? }`.
+For the bulk endpoint it's `{ records: { "<index>": { registration_id?,
+participation_status?, credited_minutes? } } }`, and nothing is saved unless
+every record is valid.
+
+## Attendance rules
+
+- Each registration has at most one attendance record; recording again
+  updates it.
+- `participation_status` is `attended` or `absent`. `credited_minutes` is 0 or
+  more, and 0 when absent (both enforced by the database).
+- Attendance is kept: the database refuses to delete a registration that has
+  an attendance record, and so also its shift, event or user (the proposal's
+  "deletion will be restricted when related records must be preserved").
+- *Proposed:* only supervisors record attendance. Peer educators see their
+  own history.
+- *Proposed:* attendance can be recorded once the shift has started (it stays
+  editable afterwards), only for active registrations on published events.
+  Cancelled events are read-only.
+- *Proposed:* `credited_minutes` can't exceed the shift's length.
+- The summary counts attendance records for shifts dated in `[from, to]`.
