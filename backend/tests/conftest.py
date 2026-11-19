@@ -8,11 +8,9 @@ binaries are found, the database tests are skipped.
 Auth is replaced by a stand-in that reads the user id straight from the bearer
 token, so ``Authorization: Bearer <user uuid>`` signs in as that user.
 """
-import glob
 import json
 import os
 import shutil
-import socket
 import subprocess
 import tempfile
 from datetime import datetime
@@ -23,9 +21,8 @@ from uuid import UUID, uuid4
 # variable is assigned (never defaulted), and load_dotenv doesn't override
 # variables that are already set, so a backend/.env with real Supabase
 # credentials can't be picked up by the tests.
-TEST_DB_HOST = "127.0.0.1"
 TEST_DB_NAME = "peerconn_test"
-os.environ["DB_HOST"] = TEST_DB_HOST
+os.environ["DB_HOST"] = "127.0.0.1"
 os.environ["DB_PORT"] = "1"  # set to the real port once the cluster is running
 os.environ["DB_NAME"] = TEST_DB_NAME
 os.environ["DB_USER"] = "postgres"
@@ -34,68 +31,16 @@ os.environ["DB_SSLMODE"] = "disable"
 os.environ["SUPABASE_URL"] = "http://supabase.invalid"
 os.environ["SUPABASE_PUBLISHABLE_KEY"] = "test-key"
 
-import psycopg  # noqa: E402
 import pytest  # noqa: E402
-from fastapi import Depends, HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from psycopg.rows import dict_row  # noqa: E402
 
 from app import campus_time  # noqa: E402
-from app.auth import bearer_scheme, get_authenticated_user_id  # noqa: E402
+from app.auth import get_authenticated_user_id  # noqa: E402
 from app.main import app  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DATABASE_DIR = REPO_ROOT / "database"
-TESTS_DIR = Path(__file__).resolve().parent
-
-# Files in the order the README runs them in the Supabase SQL Editor.
-SETUP_FILES = [
-    "schema.sql",
-    "create_user_trigger.sql",
-    "add_location_details.sql",
-    "add_event_status_and_registrations.sql",
-    "add_registration_rules_and_attendance.sql",
-]
-
-# The bits of Supabase's auth schema that schema.sql and the trigger rely on.
-SUPABASE_AUTH_STUB = """
-CREATE SCHEMA IF NOT EXISTS auth;
-CREATE TABLE IF NOT EXISTS auth.users (
-    id UUID PRIMARY KEY,
-    email TEXT,
-    raw_user_meta_data JSONB
-);
-"""
-
-# A fixed "now" in campus time: Tuesday, Jan 15, 2030, 9:00 AM.
-DEFAULT_NOW = datetime(2030, 1, 15, 9, 0)
-
+from helpers import DEFAULT_NOW, TEST_DB_HOST, fake_authenticated_user_id, free_port  # noqa: E402
+from pg import SETUP_FILES, connect, create_database, find_pg_bin  # noqa: E402
 
 # ---------- Postgres cluster ----------
-
-def find_pg_bin():
-    candidates = [os.environ.get("PG_BIN")]
-    initdb = shutil.which("initdb")
-    if initdb:
-        candidates.append(str(Path(initdb).parent))
-    for pattern in (
-        "/opt/homebrew/opt/postgresql@*/bin",
-        "/usr/local/opt/postgresql@*/bin",
-        "/usr/lib/postgresql/*/bin",
-        "/Applications/Postgres.app/Contents/Versions/latest/bin",
-    ):
-        candidates.extend(sorted(glob.glob(pattern), reverse=True))
-    for candidate in candidates:
-        if candidate and (Path(candidate) / "initdb").exists() and (Path(candidate) / "pg_ctl").exists():
-            return Path(candidate)
-    return None
-
-
-def free_port():
-    with socket.socket() as sock:
-        sock.bind((TEST_DB_HOST, 0))
-        return sock.getsockname()[1]
-
 
 @pytest.fixture(scope="session")
 def pg_cluster():
@@ -126,32 +71,6 @@ def pg_cluster():
     finally:
         subprocess.run([pg_bin / "pg_ctl", "-D", data_dir, "-m", "immediate", "stop"], capture_output=True)
         shutil.rmtree(workdir, ignore_errors=True)
-
-
-def connect(cluster, dbname, autocommit=True):
-    return psycopg.connect(
-        host=cluster["host"],
-        port=cluster["port"],
-        user=cluster["user"],
-        dbname=dbname,
-        autocommit=autocommit,
-        row_factory=dict_row,
-    )
-
-
-def run_sql_file(conn, path):
-    conn.execute(Path(path).read_text())
-
-
-def create_database(cluster, name, files=(), sql_dir=DATABASE_DIR):
-    """Creates (or recreates) a database with the Supabase auth stub and the given SQL files."""
-    with connect(cluster, "postgres") as admin:
-        admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-        admin.execute(f'CREATE DATABASE "{name}"')
-    with connect(cluster, name) as conn:
-        conn.execute(SUPABASE_AUTH_STUB)
-        for file in files:
-            run_sql_file(conn, Path(sql_dir) / file)
 
 
 @pytest.fixture(scope="session")
@@ -286,15 +205,6 @@ def make(db):
 
 
 # ---------- API client ----------
-
-def fake_authenticated_user_id(credentials=Depends(bearer_scheme)) -> UUID:
-    if credentials is None:
-        raise HTTPException(status_code=401, detail="Missing access token")
-    try:
-        return UUID(credentials.credentials)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid or expired access token")
-
 
 class Api:
     def __init__(self, client):
