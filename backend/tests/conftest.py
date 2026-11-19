@@ -48,7 +48,11 @@ from pg import SETUP_FILES, connect, create_database, find_pg_bin  # noqa: E402
 def pg_cluster():
     pg_bin = find_pg_bin()
     if pg_bin is None:
-        pytest.skip("PostgreSQL (initdb/pg_ctl) not found. Install PostgreSQL or set PG_BIN.")
+        message = "PostgreSQL (initdb/pg_ctl) not found. Install PostgreSQL or set PG_BIN."
+        # CI sets REQUIRE_POSTGRES=1 so a missing Postgres fails the run instead of skipping it.
+        if os.environ.get("REQUIRE_POSTGRES"):
+            pytest.fail(message)
+        pytest.skip(message)
 
     workdir = Path(tempfile.mkdtemp(prefix="peerconn-pg-"))
     data_dir = workdir / "data"

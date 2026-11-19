@@ -196,7 +196,9 @@ def add_conflicting_registration(conn, seeded):
 
 def test_upgrade_with_conflicting_old_data_fails_without_changing_anything(database):
     """The file runs as one transaction and checks the data first, so it stops
-    with a message listing the conflicts and leaves the database as it was."""
+    with a message listing the conflicts and leaves the database as it was.
+    (Run here as one batch, like pasting it into an SQL editor; not verified on
+    Supabase itself.)"""
     seeded = build_legacy(database, "upgrade_conflict", LEGACY_V2)
     with connect(database, "upgrade_conflict") as conn:
         add_conflicting_registration(conn, seeded)
@@ -204,7 +206,7 @@ def test_upgrade_with_conflicting_old_data_fails_without_changing_anything(datab
 
         with pytest.raises(psycopg.errors.RaiseException) as error:
             run_sql_file(conn, MIGRATION)
-        conn.execute("ROLLBACK")  # the SQL Editor ends a failed run the same way
+        conn.execute("ROLLBACK")  # close the failed transaction before inspecting
 
         assert "Nothing was changed" in str(error.value)
         assert "registrations 1, 2" in str(error.value)

@@ -1,0 +1,46 @@
+name: Backend tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      # Node runs frontend/src/lib/campusTime.js for the time-formatting parity tests.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The tests start their own throwaway PostgreSQL server (initdb + pg_ctl);
+      # they never connect to Supabase and need no secrets.
+      - name: Install PostgreSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+          echo "PG_BIN=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -n 1)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements-dev.txt
+
+      - name: Run tests
+        working-directory: backend
+        env:
+          REQUIRE_POSTGRES: "1"
+        run: python -m pytest
