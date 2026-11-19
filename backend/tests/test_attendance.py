@@ -419,8 +419,24 @@ class TestAttendanceTable:
         with pytest.raises(psycopg.errors.CheckViolation):
             self.insert(make, registration_id, status, minutes)
 
-    def test_deleting_the_registration_deletes_attendance(self, make):
-        registration_id = make.registration(make.user(), make.shift())
+    @pytest.mark.parametrize("table,key", [("registrations", "registration_id"), ("shifts", "shift_id"),
+                                           ("events", "event_id"), ("users", "user_id")])
+    def test_records_with_attendance_cant_be_deleted(self, make, table, key):
+        """Deleting the registration, or anything it cascades from, is refused."""
+        user, event = make.user(), make.event()
+        shift = make.shift(event)
+        registration_id = make.registration(user, shift)
         self.insert(make, registration_id, "attended", 60)
-        make.one("DELETE FROM public.registrations WHERE registration_id = %s RETURNING 1", (registration_id,))
-        assert make.one("SELECT COUNT(*) AS n FROM public.attendance")["n"] == 0
+        ids = {"registration_id": registration_id, "shift_id": shift, "event_id": event, "user_id": user}
+
+        with pytest.raises((psycopg.errors.ForeignKeyViolation, psycopg.errors.RestrictViolation)):
+            make.one(f"DELETE FROM public.{table} WHERE {key} = %s RETURNING 1", (ids[key],))
+
+        assert make.one("SELECT COUNT(*) AS n FROM public.attendance")["n"] == 1
+        assert make.one("SELECT COUNT(*) AS n FROM public.registrations")["n"] == 1
+
+    def test_registrations_without_attendance_still_cascade(self, make):
+        shift = make.shift()
+        make.registration(make.user(), shift, status="cancelled")
+        make.one("DELETE FROM public.shifts WHERE shift_id = %s RETURNING 1", (shift,))
+        assert make.one("SELECT COUNT(*) AS n FROM public.registrations")["n"] == 0

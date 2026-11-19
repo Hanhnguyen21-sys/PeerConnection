@@ -107,9 +107,11 @@ ALTER TABLE public.registrations ENABLE ROW LEVEL SECURITY;
 -- Attendance: at most one record per registration
 CREATE TABLE public.attendance (
     attendance_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    -- RESTRICT: a registration with attendance can't be deleted (nor its shift
+    -- or user), so participation history is never lost by accident.
     registration_id BIGINT NOT NULL
         CONSTRAINT attendance_registration_id_key UNIQUE
-        REFERENCES public.registrations(registration_id) ON DELETE CASCADE,
+        REFERENCES public.registrations(registration_id) ON DELETE RESTRICT,
     participation_status TEXT NOT NULL
         CONSTRAINT attendance_participation_status_check
         CHECK (participation_status IN ('attended', 'absent')),

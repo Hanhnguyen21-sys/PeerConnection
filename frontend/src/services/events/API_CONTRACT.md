@@ -368,6 +368,9 @@ every record is valid.
   updates it.
 - `participation_status` is `attended` or `absent`. `credited_minutes` is 0 or
   more, and 0 when absent (both enforced by the database).
+- Attendance is kept: the database refuses to delete a registration that has
+  an attendance record, and so also its shift, event or user (the proposal's
+  "deletion will be restricted when related records must be preserved").
 - *Proposed:* only supervisors record attendance. Peer educators see their
   own history.
 - *Proposed:* attendance can be recorded once the shift has started (it stays
