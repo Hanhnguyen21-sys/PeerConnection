@@ -13,6 +13,7 @@ from app.routes.services import events_service, shifts_service
 router = APIRouter(prefix="/api", tags=["Events"])
 
 # Compatibility exports for routes that already depend on these helpers.
+ShiftInput = shifts_service.ShiftInput
 format_shift = shifts_service.format_shift
 fetch_shifts = shifts_service.fetch_shifts
 is_valid_date = shifts_service.is_valid_date
