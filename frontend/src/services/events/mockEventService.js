@@ -1054,7 +1054,10 @@ export function getAttendanceSummary({ from, to } = {}, ctx) {
       byUser.set(registration.user_id, row);
     }
     const rows = [...byUser.values()].sort(
-      (a, b) => b.credited_minutes - a.credited_minutes || a.user.name.localeCompare(b.user.name),
+      (a, b) =>
+        b.credited_minutes - a.credited_minutes ||
+        a.user.name.localeCompare(b.user.name) ||
+        String(a.user.user_id).localeCompare(String(b.user.user_id)),
     );
     return {
       range: { from, to },
@@ -1098,7 +1101,13 @@ export function getMyAttendance(ctx) {
         };
       })
       .filter(Boolean)
-      .sort((a, b) => -compareShifts(a.shift, b.shift) || b.attendance_id - a.attendance_id);
+      // Newest shift first, like the backend: date, then start time, then newest record.
+      .sort(
+        (a, b) =>
+          b.shift.shift_date.localeCompare(a.shift.shift_date) ||
+          b.shift.start_time.localeCompare(a.shift.start_time) ||
+          b.attendance_id - a.attendance_id,
+      );
     return {
       summary: {
         shifts_attended: records.filter((r) => r.participation_status === "attended").length,

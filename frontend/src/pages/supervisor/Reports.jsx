@@ -25,7 +25,7 @@ function formatFillRate(rate) {
 }
 
 // Who actually came: attendance recorded for shifts in the range, per peer educator.
-function ParticipationSection({ query, range }) {
+function ParticipationSection({ query }) {
   const summary = query.latestData;
   let body;
   if (query.error) {
@@ -43,18 +43,18 @@ function ParticipationSection({ query, range }) {
     body = (
       <>
         <p className="hint" role="status">
-          {totals.peer_educators} peer educator{totals.peer_educators === 1 ? "" : "s"} ·{" "}
+          {totals.peer_educators} {totals.peer_educators === 1 ? "person" : "people"} ·{" "}
           {totals.shifts_attended} shift{totals.shifts_attended === 1 ? "" : "s"} attended ·{" "}
           {totals.shifts_absent} missed · {formatMinutes(totals.credited_minutes)} credited
         </p>
         <div className="table-wrap">
           <table>
             <caption className="visually-hidden">
-              Attendance by peer educator for {formatDateRange(range.from, range.to)}
+              Attendance by person for {formatDateRange(summary.range.from, summary.range.to)}
             </caption>
             <thead>
               <tr>
-                <th scope="col">Peer educator</th>
+                <th scope="col">Name</th>
                 <th scope="col">Email</th>
                 <th scope="col" className="num">
                   Shifts attended
@@ -96,7 +96,10 @@ function ParticipationSection({ query, range }) {
       <h2 className="section-title" id="participation-heading">
         Participation
       </h2>
-      <p className="hint">Attendance recorded for shifts in this range, by peer educator.</p>
+      <p className="hint">
+        Attendance recorded for shifts in this range, by person. Unlike staffing, this includes events
+        cancelled after attendance was recorded, since the time was still served.
+      </p>
       {body}
     </section>
   );
@@ -253,8 +256,6 @@ export default function Reports() {
             </div>
           )}
         </section>
-
-        <ParticipationSection query={attendanceQuery} range={range} />
       </div>
     );
   }
@@ -340,6 +341,8 @@ export default function Reports() {
       )}
 
       {content}
+
+      {!range.error && <ParticipationSection query={attendanceQuery} />}
     </>
   );
 }
