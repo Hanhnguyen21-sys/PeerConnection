@@ -20,6 +20,8 @@ const PEER_EDUCATORS = [
   ["u08", "Liam Johnson"],
   ["u09", "Hana Kim"],
   ["u10", "Noah Williams"],
+  // No sign-ups, so "Make supervisor" works for them in demo mode.
+  ["u11", "Riley Brooks"],
 ];
 
 const LOCATIONS = [
@@ -195,5 +197,12 @@ export function createSeedData(today, nowIso = new Date().toISOString()) {
     });
   });
 
-  return { users, locations: LOCATIONS.map((location) => ({ ...location })), events, shifts, registrations };
+  return {
+    users,
+    locations: LOCATIONS.map((location) => ({ ...location })),
+    events,
+    shifts,
+    registrations,
+    attendance: [],
+  };
 }

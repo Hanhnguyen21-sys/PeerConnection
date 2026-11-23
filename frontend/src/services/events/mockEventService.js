@@ -819,7 +819,19 @@ function registrationDetail(store, registrationId, now = campusNow()) {
       end_time: shift.end_time,
     },
     location,
+    attendance: attendanceFor(store, registration.registration_id),
   };
+}
+
+function attendanceFor(store, registrationId) {
+  const record = (store.attendance ?? []).find((a) => a.registration_id === registrationId);
+  return record
+    ? {
+        attendance_id: record.attendance_id,
+        participation_status: record.participation_status,
+        credited_minutes: record.credited_minutes,
+      }
+    : null;
 }
 
 // Every registration the user has made, active or cancelled, oldest shift first.
@@ -835,6 +847,353 @@ export function getMyRegistrations(_filters, ctx) {
         (a, b) =>
           compareShifts(a.shift, b.shift) || a.created_at.localeCompare(b.created_at),
       );
+  });
+}
+
+// ---------- Attendance ----------
+// Same rules as backend/app/routes/attendance.py.
+
+function minutesBetween(start, end) {
+  const [startHour, startMinute] = start.split(":").map(Number);
+  const [endHour, endMinute] = end.split(":").map(Number);
+  return endHour * 60 + endMinute - (startHour * 60 + startMinute);
+}
+
+function requireSupervisorTo(ctx, action) {
+  if (ctx?.profile?.role !== "supervisor") {
+    throw new ServiceError(`Only supervisors can ${action}`, { status: 403 });
+  }
+}
+
+function attendanceBlockedReason(event, shift, now) {
+  if (event.status === "cancelled") return "This event was cancelled, so attendance can't be changed.";
+  if (event.status !== "published") return "Attendance can only be recorded for published events.";
+  if (!hasShiftStarted(shift, now)) return "Attendance can be recorded once the shift starts.";
+  return null;
+}
+
+function shiftRoster(store, shiftId, now) {
+  const shift = store.shifts.find((item) => item.shift_id === shiftId);
+  if (!shift) throw notFound("Shift");
+  const event = store.events.find((item) => item.event_id === shift.event_id);
+  const location = store.locations.find((item) => item.location_id === shift.location_id) ?? null;
+  const users = new Map(store.users.map((user) => [user.user_id, user]));
+  const records = new Map((store.attendance ?? []).map((record) => [record.registration_id, record]));
+
+  const roster = store.registrations
+    .filter((r) => r.shift_id === shiftId && r.status === "active")
+    .map((r) => {
+      const user = users.get(r.user_id);
+      const record = records.get(r.registration_id);
+      return {
+        registration_id: r.registration_id,
+        registered_at: r.created_at,
+        user: { user_id: r.user_id, name: user?.name ?? "Unknown user", email: user?.email ?? "" },
+        attendance: record
+          ? {
+              attendance_id: record.attendance_id,
+              participation_status: record.participation_status,
+              credited_minutes: record.credited_minutes,
+            }
+          : null,
+      };
+    })
+    .sort((a, b) => a.user.name.localeCompare(b.user.name));
+
+  const marked = roster.map((entry) => entry.attendance).filter(Boolean);
+  const blocked = attendanceBlockedReason(event, shift, now);
+  return {
+    shift: {
+      shift_id: shift.shift_id,
+      shift_date: shift.shift_date,
+      start_time: shift.start_time,
+      end_time: shift.end_time,
+      capacity: shift.capacity,
+      duration_minutes: minutesBetween(shift.start_time, shift.end_time),
+      has_started: hasShiftStarted(shift, now),
+      has_ended: hasShiftEnded(shift, now),
+      location,
+    },
+    event: { event_id: event.event_id, title: event.title, status: event.status },
+    can_record: blocked === null,
+    blocked_reason: blocked,
+    summary: {
+      registered: roster.length,
+      attended: marked.filter((a) => a.participation_status === "attended").length,
+      absent: marked.filter((a) => a.participation_status === "absent").length,
+      unmarked: roster.length - marked.length,
+      credited_minutes: marked.reduce((sum, a) => sum + a.credited_minutes, 0),
+    },
+    roster,
+  };
+}
+
+function cleanAttendanceRecord(record, maxMinutes) {
+  const errors = {};
+  const status =
+    typeof record.participation_status === "string" ? record.participation_status.trim().toLowerCase() : null;
+  if (status !== "attended" && status !== "absent") errors.participation_status = 'Choose "attended" or "absent".';
+
+  const raw = record.credited_minutes;
+  const given = raw !== undefined && raw !== null && String(raw).trim() !== "";
+  let minutes = given && /^[0-9]{1,18}$/.test(String(raw).trim()) ? Number(String(raw).trim()) : null;
+  if (given && minutes === null) errors.credited_minutes = "Enter a whole number of minutes, 0 or more.";
+  else if (minutes !== null && minutes > maxMinutes)
+    errors.credited_minutes = `Credited minutes can't be more than the shift's ${maxMinutes} minutes.`;
+  else if (status === "absent" && minutes) errors.credited_minutes = "Absent participants can't be credited minutes.";
+
+  if (status === "absent") minutes = 0;
+  else if (minutes === null) minutes = maxMinutes;
+  return { cleaned: { participation_status: status, credited_minutes: minutes }, errors };
+}
+
+export function getShiftAttendance(shiftId, ctx) {
+  return respond(() => {
+    requireSupervisorTo(ctx, "view attendance");
+    return shiftRoster(readStore(), Number(shiftId), campusNow());
+  });
+}
+
+export function saveShiftAttendance(shiftId, records, ctx) {
+  return respond(() => {
+    requireSupervisorTo(ctx, "record attendance");
+    const id = Number(shiftId);
+    const now = campusNow();
+    const roster = shiftRoster(readStore(), id, now);
+    if (!roster.can_record) throw new ServiceError(roster.blocked_reason, { status: 409 });
+    if (!Array.isArray(records) || records.length === 0) {
+      throw new ServiceError("Add at least one attendance record.", {
+        status: 422,
+        fieldErrors: { records: "Add at least one attendance record." },
+      });
+    }
+
+    const active = new Set(roster.roster.map((entry) => entry.registration_id));
+    const onShift = new Set(readStore().registrations.filter((r) => r.shift_id === id).map((r) => r.registration_id));
+    const seen = new Set();
+    const cleaned = [];
+    const recordErrors = {};
+    records.forEach((record, index) => {
+      const { cleaned: values, errors } = cleanAttendanceRecord(record, roster.shift.duration_minutes);
+      const registrationId = Number(record.registration_id);
+      if (!onShift.has(registrationId)) errors.registration_id = "This registration isn't on this shift.";
+      else if (seen.has(registrationId)) errors.registration_id = "This registration is listed more than once.";
+      else if (!active.has(registrationId)) errors.registration_id = "Cancelled registrations can't have attendance.";
+      seen.add(registrationId);
+      if (Object.keys(errors).length > 0) recordErrors[String(index)] = errors;
+      cleaned.push({ registration_id: registrationId, ...values });
+    });
+    if (Object.keys(recordErrors).length > 0) {
+      throw new ServiceError("Please fix the highlighted fields.", {
+        status: 422,
+        fieldErrors: { records: recordErrors },
+      });
+    }
+
+    updateStore((store) => {
+      store.attendance = store.attendance ?? [];
+      for (const values of cleaned) {
+        const existing = store.attendance.find((a) => a.registration_id === values.registration_id);
+        if (existing) Object.assign(existing, values);
+        else store.attendance.push({ attendance_id: nextId(store.attendance, "attendance_id"), ...values });
+      }
+    });
+    return shiftRoster(readStore(), id, now);
+  });
+}
+
+export function clearAttendance(registrationId, ctx) {
+  return respond(() => {
+    requireSupervisorTo(ctx, "record attendance");
+    const store = readStore();
+    const id = Number(registrationId);
+    const registration = store.registrations.find((r) => r.registration_id === id);
+    if (!registration) throw notFound("Registration");
+    const shift = store.shifts.find((item) => item.shift_id === registration.shift_id);
+    const event = store.events.find((item) => item.event_id === shift.event_id);
+    if (event.status === "cancelled") {
+      throw new ServiceError("This event was cancelled, so attendance can't be changed.", { status: 409 });
+    }
+    updateStore((draft) => {
+      draft.attendance = (draft.attendance ?? []).filter((a) => a.registration_id !== id);
+    });
+    return null;
+  });
+}
+
+export function getAttendanceSummary({ from, to } = {}, ctx) {
+  return respond(() => {
+    if (ctx?.profile?.role !== "supervisor") {
+      throw new ServiceError("Only supervisors can view attendance", { status: 403 });
+    }
+    if (!isValidDateString(from) || !isValidDateString(to) || from > to) {
+      throw new ServiceError("Choose a valid date range.", { status: 422 });
+    }
+    const store = readStore();
+    const registrations = new Map(store.registrations.map((r) => [r.registration_id, r]));
+    const shifts = new Map(store.shifts.map((shift) => [shift.shift_id, shift]));
+    const users = new Map(store.users.map((user) => [user.user_id, user]));
+    const byUser = new Map();
+    for (const record of store.attendance ?? []) {
+      const registration = registrations.get(record.registration_id);
+      const shift = registration && shifts.get(registration.shift_id);
+      if (!shift || shift.shift_date < from || shift.shift_date > to) continue;
+      const row = byUser.get(registration.user_id) ?? {
+        user: {
+          user_id: registration.user_id,
+          name: users.get(registration.user_id)?.name ?? "Unknown user",
+          email: users.get(registration.user_id)?.email ?? "",
+        },
+        shifts_attended: 0,
+        shifts_absent: 0,
+        credited_minutes: 0,
+      };
+      if (record.participation_status === "attended") row.shifts_attended += 1;
+      else row.shifts_absent += 1;
+      row.credited_minutes += record.credited_minutes;
+      byUser.set(registration.user_id, row);
+    }
+    const rows = [...byUser.values()].sort(
+      (a, b) =>
+        b.credited_minutes - a.credited_minutes ||
+        a.user.name.localeCompare(b.user.name) ||
+        String(a.user.user_id).localeCompare(String(b.user.user_id)),
+    );
+    return {
+      range: { from, to },
+      totals: {
+        peer_educators: rows.length,
+        shifts_attended: rows.reduce((sum, row) => sum + row.shifts_attended, 0),
+        shifts_absent: rows.reduce((sum, row) => sum + row.shifts_absent, 0),
+        credited_minutes: rows.reduce((sum, row) => sum + row.credited_minutes, 0),
+      },
+      rows,
+    };
+  });
+}
+
+export function getMyAttendance(ctx) {
+  return respond(() => {
+    if (ctx?.profile?.role !== "peer_educator") {
+      throw new ServiceError("Only peer educators can view their participation history", { status: 403 });
+    }
+    const store = readStore();
+    const registrations = new Map(store.registrations.map((r) => [r.registration_id, r]));
+    const records = (store.attendance ?? [])
+      .map((record) => {
+        const registration = registrations.get(record.registration_id);
+        if (!registration || registration.user_id !== ctx.profile.user_id) return null;
+        const shift = store.shifts.find((item) => item.shift_id === registration.shift_id);
+        const event = store.events.find((item) => item.event_id === shift.event_id);
+        return {
+          attendance_id: record.attendance_id,
+          registration_id: record.registration_id,
+          participation_status: record.participation_status,
+          credited_minutes: record.credited_minutes,
+          event: { event_id: event.event_id, title: event.title },
+          shift: {
+            shift_id: shift.shift_id,
+            shift_date: shift.shift_date,
+            start_time: shift.start_time,
+            end_time: shift.end_time,
+          },
+          location: store.locations.find((item) => item.location_id === shift.location_id) ?? null,
+        };
+      })
+      .filter(Boolean)
+      // Newest shift first, like the backend: date, then start time, then newest record.
+      .sort(
+        (a, b) =>
+          b.shift.shift_date.localeCompare(a.shift.shift_date) ||
+          b.shift.start_time.localeCompare(a.shift.start_time) ||
+          b.attendance_id - a.attendance_id,
+      );
+    return {
+      summary: {
+        shifts_attended: records.filter((r) => r.participation_status === "attended").length,
+        shifts_absent: records.filter((r) => r.participation_status === "absent").length,
+        credited_minutes: records.reduce((sum, r) => sum + r.credited_minutes, 0),
+      },
+      records,
+    };
+  });
+}
+
+// ---------- People and roles ----------
+// Same rules as backend/app/routes/users.py.
+
+// Sign-ups for shifts that haven't started: the ones a peer educator can still cancel.
+function upcomingRegistrationCount(store, userId, now) {
+  const shifts = new Map(store.shifts.map((shift) => [shift.shift_id, shift]));
+  const events = new Map(store.events.map((event) => [event.event_id, event]));
+  return store.registrations.filter((r) => {
+    if (r.user_id !== userId || r.status !== "active") return false;
+    const shift = shifts.get(r.shift_id);
+    return events.get(shift.event_id)?.status !== "cancelled" && !hasShiftStarted(shift, now);
+  }).length;
+}
+
+export function getUsers({ search = "" } = {}, ctx) {
+  return respond(() => {
+    if (ctx?.profile?.role !== "supervisor") {
+      throw new ServiceError("Only supervisors can view people", { status: 403 });
+    }
+    // The signed-in supervisor comes from the real /api/me, so add them to the demo people.
+    if (ctx.profile.user_id && !readStore().users.some((user) => user.user_id === ctx.profile.user_id)) {
+      updateStore((draft) => upsertUser(draft, ctx.profile));
+    }
+    const store = readStore();
+    const now = campusNow();
+    const term = normalizeText(search).toLowerCase();
+    return store.users
+      .filter((user) => !term || user.name.toLowerCase().includes(term) || user.email.toLowerCase().includes(term))
+      .map((user) => ({
+        user_id: user.user_id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        upcoming_registrations: upcomingRegistrationCount(store, user.user_id, now),
+        is_you: user.user_id === ctx.profile.user_id,
+      }))
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.email.localeCompare(b.email));
+  });
+}
+
+export function setUserRole(userId, role, ctx) {
+  return respond(() => {
+    if (ctx?.profile?.role !== "supervisor") {
+      throw new ServiceError("Only supervisors can change roles.", { status: 403, code: "forbidden" });
+    }
+    const cleanRole = typeof role === "string" ? role.trim().toLowerCase() : null;
+    if (cleanRole !== "supervisor" && cleanRole !== "peer_educator") {
+      throw new ServiceError("Please fix the highlighted fields.", {
+        status: 422,
+        fieldErrors: { role: 'Choose "supervisor" or "peer_educator".' },
+      });
+    }
+    if (userId === ctx.profile.user_id) {
+      throw new ServiceError("You can't change your own role. Ask another supervisor to do it.", {
+        status: 409,
+        code: "own_role",
+      });
+    }
+    const store = readStore();
+    const target = store.users.find((user) => user.user_id === userId);
+    if (!target) throw notFound("User");
+    if (cleanRole === "supervisor" && target.role !== "supervisor") {
+      const upcoming = upcomingRegistrationCount(store, userId, campusNow());
+      if (upcoming) {
+        throw new ServiceError(
+          `${target.name || target.email} has ${upcoming} upcoming shift ${upcoming === 1 ? "registration" : "registrations"}. ` +
+            "They need to cancel them before becoming a supervisor.",
+          { status: 409, code: "has_registrations" },
+        );
+      }
+    }
+    updateStore((draft) => {
+      draft.users.find((user) => user.user_id === userId).role = cleanRole;
+    });
+    return { user_id: target.user_id, name: target.name, email: target.email, role: cleanRole, is_you: false };
   });
 }
 

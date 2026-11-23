@@ -696,6 +696,16 @@
   color: var(--warn-ink);
 }
 
+.badge-role-supervisor {
+  background: #e8e4fb;
+  color: #4a3a9e;
+}
+
+.badge-role-educator {
+  background: #eceef2;
+  color: #464e5f;
+}
+
 /* ---------- Event cards ---------- */
 
 .event-grid {
@@ -1421,4 +1431,59 @@ tbody th {
   .tabs {
     gap: 20px;
   }
+}
+
+/* ---------- Attendance ---------- */
+
+.attendance-summary {
+  margin: 12px 0 0;
+}
+
+.attendance-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.attendance-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.attendance-choices:disabled .attendance-choice {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.attendance-minutes {
+  width: 7.5rem;
+}
+
+.attendance-help {
+  margin: 12px 0 0;
+}
+
+.attendance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* ---------- Reports: participation ---------- */
+
+.report-participation {
+  margin-top: 24px;
+}
+
+.report-participation .table-wrap {
+  margin-top: 12px;
 }

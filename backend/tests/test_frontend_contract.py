@@ -54,6 +54,40 @@ def test_expected_paths():
     assert calls["getMyRegistrations"] == ("GET", "/api/me/registrations")
 
 
+@pytest.mark.parametrize(
+    "function, expected",
+    [
+        ("getShiftAttendance", ("GET", "/api/shifts/{}/attendance")),
+        ("saveShiftAttendance", ("PUT", "/api/shifts/{}/attendance")),
+        ("clearAttendance", ("DELETE", "/api/registrations/{}/attendance")),
+        ("getUsers", ("GET", "/api/users")),
+        ("setUserRole", ("PUT", "/api/users/{}/role")),
+        ("getAttendanceSummary", ("GET", "/api/attendance/summary")),
+        ("getMyAttendance", ("GET", "/api/me/attendance")),
+    ],
+)
+def test_attendance_and_people_functions_have_a_backend_route(function, expected):
+    assert frontend_calls()[function] == expected
+    assert expected in backend_routes()
+
+
+def test_every_supervisor_function_is_switched_to_the_api():
+    """index.js only sends functions listed in SUPERVISOR_FUNCTIONS to the backend
+    when the supervisor dashboard is on the API, so a missing name would quietly
+    use demo data with real ids."""
+    index = (HTTP_SERVICE.parent / "index.js").read_text()
+    listed = set(re.findall(r'"(\w+)"', index.split("SUPERVISOR_FUNCTIONS = [", 1)[1].split("]", 1)[0]))
+    for name in (
+        "getShiftAttendance",
+        "saveShiftAttendance",
+        "clearAttendance",
+        "getAttendanceSummary",
+        "getUsers",
+        "setUserRole",
+    ):
+        assert name in listed, name
+
+
 def test_no_route_is_defined_twice():
     """Two routers serving the same method and path means one silently wins."""
     seen = {}

@@ -299,8 +299,8 @@ shows `detail` as-is and treats the server's answer as authoritative.
   "Event cancelled", separate from cancellations the user made. Alternatively,
   should the backend mark these registrations as cancelled, with a reason?
 - **Attendance is recorded by supervisors**, not inferred. Past registrations
-  are labelled "Past registration" until a supervisor marks them; see
-  Attendance below.
+  are labelled "Past registration"; once a supervisor marks them, "My Events"
+  adds an "Attended · <time>" or "Absent" badge. See Attendance below.
 
 ---
 

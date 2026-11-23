@@ -6,6 +6,7 @@ import { EmptyState, ErrorState, LoadingState, Notice } from "../../components/s
 import Tabs from "../../components/supervisor/Tabs";
 import { useQuery } from "../../hooks/useQuery";
 import { formatDate, formatTimeRange, formatTimestamp, getDateParts } from "../../lib/campusTime";
+import { formatMinutes } from "../../lib/duration";
 import { locationName } from "../../lib/locations";
 import { useEventsApi } from "../../services/events/useEventsApi";
 
@@ -64,7 +65,7 @@ function groupRegistrations(list) {
 }
 
 function RegistrationItem({ registration, onCancel, compact = false }) {
-  const { event, shift, location } = registration;
+  const { event, shift, location, attendance } = registration;
   const status = STATUS[registration.category];
   const dateParts = getDateParts(shift.shift_date);
   const headingId = `registration-${registration.registration_id}-title`;
@@ -80,6 +81,13 @@ function RegistrationItem({ registration, onCancel, compact = false }) {
       <div className="registration-body">
         <div className="badges">
           <span className={`badge ${status.className}`}>{status.label}</span>
+          {attendance && (
+            <span className={`badge ${attendance.participation_status === "attended" ? "badge-attended" : "badge-absent"}`}>
+              {attendance.participation_status === "attended"
+                ? `Attended · ${formatMinutes(attendance.credited_minutes)}`
+                : "Absent"}
+            </span>
+          )}
         </div>
         <h3 className="registration-title" id={headingId}>
           <Link to={`/educator/events/${event.event_id}`}>{event.title}</Link>
@@ -93,6 +101,9 @@ function RegistrationItem({ registration, onCancel, compact = false }) {
         </p>
         {registration.category === "cancelled_by_user" && registration.cancelled_at && (
           <p className="hint">You cancelled on {formatTimestamp(registration.cancelled_at)}.</p>
+        )}
+        {registration.category === "past" && !attendance && (
+          <p className="hint">Attendance hasn&apos;t been recorded for this shift yet.</p>
         )}
         {registration.category === "event_cancelled" && (
           <p className="hint">The organizers cancelled this event. Your registration is kept here for your records.</p>
@@ -127,6 +138,8 @@ export default function MyEvents() {
   const tabParam = searchParams.get("tab");
   const activeTab = ["upcoming", "past", "cancelled"].includes(tabParam) ? tabParam : "upcoming";
   const registrationsQuery = useQuery("my-registrations", () => api.getMyRegistrations());
+  const attendanceQuery = useQuery("my-attendance", () => api.getMyAttendance());
+  const attendanceSummary = attendanceQuery.latestData?.summary;
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelError, setCancelError] = useState("");
   const [isCancelling, setIsCancelling] = useState(false);
@@ -220,7 +233,7 @@ export default function MyEvents() {
         <div>
           <h1 className="page-title">My events</h1>
           <p className="page-subtitle">
-            Your shift registrations. Past items show what you were registered for, not attendance.
+            Your shift registrations, and your attendance once a supervisor records it.
           </p>
         </div>
         <Link to="/educator/events" className="btn btn-primary">
@@ -229,6 +242,31 @@ export default function MyEvents() {
       </div>
 
       <Notice onDismiss={() => setNotice("")}>{notice}</Notice>
+
+      {attendanceSummary && (
+        <dl className="stat-grid" aria-label="Your participation">
+          <div className="stat-card">
+            <dt>Shifts attended</dt>
+            <dd>{attendanceSummary.shifts_attended}</dd>
+          </div>
+          <div className="stat-card">
+            <dt>Shifts missed</dt>
+            <dd>{attendanceSummary.shifts_absent}</dd>
+          </div>
+          <div className="stat-card">
+            <dt>Credited time</dt>
+            <dd>{formatMinutes(attendanceSummary.credited_minutes)}</dd>
+          </div>
+        </dl>
+      )}
+      {attendanceQuery.error && (
+        <p className="hint" role="status">
+          We couldn&apos;t load your attendance totals.{" "}
+          <button type="button" className="btn-text" onClick={attendanceQuery.reload}>
+            Try again
+          </button>
+        </p>
+      )}
 
       <section className="card">
         <Tabs
