@@ -235,6 +235,7 @@ export default function AttendancePanel({ shifts, onSaved }) {
     setSaveError("");
     setRowErrors({});
     let savedSome = false;
+    let savedAll = false;
     const showRoster = (roster) =>
       setSaved((current) => ({ shiftId, roster, version: (current?.version ?? 0) + 1 }));
     try {
@@ -247,6 +248,7 @@ export default function AttendancePanel({ shifts, onSaved }) {
         await api.clearAttendance(registrationId);
         savedSome = true;
       }
+      savedAll = true;
       if (clears.length > 0 || !latest) latest = await api.getShiftAttendance(shiftId);
       showRoster(latest);
       onSaved?.(`Attendance saved for ${shiftLabel(latest.shift)}.`);
@@ -270,7 +272,8 @@ export default function AttendancePanel({ shifts, onSaved }) {
         setRowErrors(errors);
       }
       const message = error.message || "We couldn't save attendance. Please try again.";
-      setSaveError(savedSome ? `Some changes were saved, but not all: ${message}` : message);
+      if (savedAll) setSaveError("Attendance was saved, but we couldn't reload it. Refresh the page to see it.");
+      else setSaveError(savedSome ? `Some changes were saved, but not all: ${message}` : message);
     } finally {
       setIsSaving(false);
     }
