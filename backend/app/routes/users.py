@@ -4,6 +4,8 @@ Roles:
 - Everyone signs up as a peer educator (database/create_user_trigger.sql).
   Sign-up never takes a role.
 - Supervisors can make another user a supervisor or a peer educator.
+- Someone with sign-ups for shifts that haven't started can't be made a
+  supervisor until they cancel them (only peer educators can cancel).
 - Nobody can change their own role, so a supervisor can't lock themselves out,
   and two supervisors demoting each other at once can't leave zero supervisors
   (see set_user_role).
@@ -26,9 +28,11 @@ router = APIRouter(prefix="/api", tags=["Users"])
 
 ROLES = ("supervisor", "peer_educator")
 
-# Active registrations for shifts that haven't ended yet. A supervisor can't
-# cancel a registration (only peer educators can), so promoting someone who has
-# these would leave them holding spots they can't release.
+# Active registrations for shifts that haven't started yet: the ones a peer
+# educator can still cancel (registrations.py refuses once a shift starts). A
+# supervisor can't cancel a registration, so promoting someone who has these
+# would leave them holding spots they can't release. Shifts already in progress
+# don't block it, since nobody can cancel those anyway.
 UPCOMING_REGISTRATIONS_SQL = """
     SELECT COUNT(*)::int
     FROM public.registrations
@@ -37,7 +41,7 @@ UPCOMING_REGISTRATIONS_SQL = """
     WHERE registrations.user_id = {user}
       AND registrations.status = 'active'
       AND events.status <> 'cancelled'
-      AND shifts.shift_date + shifts.end_time > %(now)s
+      AND shifts.shift_date + shifts.start_time > %(now)s
 """
 
 
@@ -81,6 +85,9 @@ def list_users(
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
             require_supervisor(cursor, user_id, "view people")
+            if "\x00" in term:
+                # PostgreSQL text can't hold NUL; without this it's a 500.
+                raise ApiError(422, "Enter a search without control characters.")
             cursor.execute(
                 """
                 SELECT users.user_id, users.name, users.email, users.role,
@@ -116,12 +123,6 @@ def set_user_role(
     user_id: UUID = Depends(get_authenticated_user_id),
 ):
     role = body.role.strip().lower() if isinstance(body.role, str) else None
-    if role not in ROLES:
-        raise ApiError(
-            422,
-            "Please fix the highlighted fields.",
-            {"role": 'Choose "supervisor" or "peer_educator".'},
-        )
 
     with get_connection() as conn:
         with conn.cursor(row_factory=dict_row) as cursor:
@@ -149,6 +150,12 @@ def set_user_role(
             actor = rows.get(user_id)
             if actor is None or actor["role"] != "supervisor":
                 raise ApiError(403, "Only supervisors can change roles.", code="forbidden")
+            if role not in ROLES:
+                raise ApiError(
+                    422,
+                    "Please fix the highlighted fields.",
+                    {"role": 'Choose "supervisor" or "peer_educator".'},
+                )
             if target_id == user_id:
                 raise ApiError(
                     409,

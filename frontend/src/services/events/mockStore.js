@@ -6,7 +6,7 @@ import { createSeedData } from "./fixtures";
 
 const STORAGE_KEY = "peer-connections.demo-data.v1";
 // Bump when the demo data shape or fixtures change; older saved data is replaced.
-const VERSION = 3;
+const VERSION = 4;
 
 let cache = null;
 

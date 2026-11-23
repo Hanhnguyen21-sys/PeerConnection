@@ -66,6 +66,7 @@ function AttendanceRoster({ roster, isSaving, saveError, rowErrors, onSave }) {
   const [values, setValues] = useState(() => initialValues(roster));
   const { records, clears } = pendingChanges(roster, values);
   const hasChanges = records.length + clears.length > 0;
+  const hasUnmarked = Object.values(values).some((value) => !value.status);
   const readOnly = !roster.can_record;
   const { summary, shift } = roster;
 
@@ -190,7 +191,7 @@ function AttendanceRoster({ roster, isSaving, saveError, rowErrors, onSave }) {
               type="button"
               className="btn btn-secondary"
               onClick={markEveryoneAttended}
-              disabled={isSaving || summary.unmarked === 0}
+              disabled={isSaving || !hasUnmarked}
             >
               Mark everyone not marked as attended
             </button>
@@ -233,14 +234,31 @@ export default function AttendancePanel({ shifts, onSaved }) {
     setIsSaving(true);
     setSaveError("");
     setRowErrors({});
+    let savedSome = false;
+    const showRoster = (roster) =>
+      setSaved((current) => ({ shiftId, roster, version: (current?.version ?? 0) + 1 }));
     try {
       let latest = null;
-      if (records.length > 0) latest = await api.saveShiftAttendance(shiftId, records);
-      for (const registrationId of clears) await api.clearAttendance(registrationId);
+      if (records.length > 0) {
+        latest = await api.saveShiftAttendance(shiftId, records);
+        savedSome = true;
+      }
+      for (const registrationId of clears) {
+        await api.clearAttendance(registrationId);
+        savedSome = true;
+      }
       if (clears.length > 0 || !latest) latest = await api.getShiftAttendance(shiftId);
-      setSaved((current) => ({ shiftId, roster: latest, version: (current?.version ?? 0) + 1 }));
+      showRoster(latest);
       onSaved?.(`Attendance saved for ${shiftLabel(latest.shift)}.`);
     } catch (error) {
+      // Part of the save went through: show what's actually stored now.
+      if (savedSome) {
+        try {
+          showRoster(await api.getShiftAttendance(shiftId));
+        } catch {
+          // Keep the error below; the next load will show the stored state.
+        }
+      }
       // The bulk endpoint reports field errors by the record's position in the request.
       const byIndex = error.fieldErrors?.records;
       if (byIndex && typeof byIndex === "object") {
@@ -251,7 +269,8 @@ export default function AttendancePanel({ shifts, onSaved }) {
         }
         setRowErrors(errors);
       }
-      setSaveError(error.message || "We couldn't save attendance. Please try again.");
+      const message = error.message || "We couldn't save attendance. Please try again.";
+      setSaveError(savedSome ? `Some changes were saved, but not all: ${message}` : message);
     } finally {
       setIsSaving(false);
     }

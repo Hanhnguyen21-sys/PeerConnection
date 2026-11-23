@@ -859,6 +859,12 @@ function minutesBetween(start, end) {
   return endHour * 60 + endMinute - (startHour * 60 + startMinute);
 }
 
+function requireSupervisorTo(ctx, action) {
+  if (ctx?.profile?.role !== "supervisor") {
+    throw new ServiceError(`Only supervisors can ${action}`, { status: 403 });
+  }
+}
+
 function attendanceBlockedReason(event, shift, now) {
   if (event.status === "cancelled") return "This event was cancelled, so attendance can't be changed.";
   if (event.status !== "published") return "Attendance can only be recorded for published events.";
@@ -943,14 +949,14 @@ function cleanAttendanceRecord(record, maxMinutes) {
 
 export function getShiftAttendance(shiftId, ctx) {
   return respond(() => {
-    requireSupervisor(ctx);
+    requireSupervisorTo(ctx, "view attendance");
     return shiftRoster(readStore(), Number(shiftId), campusNow());
   });
 }
 
 export function saveShiftAttendance(shiftId, records, ctx) {
   return respond(() => {
-    requireSupervisor(ctx);
+    requireSupervisorTo(ctx, "record attendance");
     const id = Number(shiftId);
     const now = campusNow();
     const roster = shiftRoster(readStore(), id, now);
@@ -963,14 +969,16 @@ export function saveShiftAttendance(shiftId, records, ctx) {
     }
 
     const active = new Set(roster.roster.map((entry) => entry.registration_id));
+    const onShift = new Set(readStore().registrations.filter((r) => r.shift_id === id).map((r) => r.registration_id));
     const seen = new Set();
     const cleaned = [];
     const recordErrors = {};
     records.forEach((record, index) => {
       const { cleaned: values, errors } = cleanAttendanceRecord(record, roster.shift.duration_minutes);
       const registrationId = Number(record.registration_id);
-      if (!active.has(registrationId)) errors.registration_id = "This isn't an active registration for this shift.";
+      if (!onShift.has(registrationId)) errors.registration_id = "This registration isn't on this shift.";
       else if (seen.has(registrationId)) errors.registration_id = "This registration is listed more than once.";
+      else if (!active.has(registrationId)) errors.registration_id = "Cancelled registrations can't have attendance.";
       seen.add(registrationId);
       if (Object.keys(errors).length > 0) recordErrors[String(index)] = errors;
       cleaned.push({ registration_id: registrationId, ...values });
@@ -996,7 +1004,7 @@ export function saveShiftAttendance(shiftId, records, ctx) {
 
 export function clearAttendance(registrationId, ctx) {
   return respond(() => {
-    requireSupervisor(ctx);
+    requireSupervisorTo(ctx, "record attendance");
     const store = readStore();
     const id = Number(registrationId);
     const registration = store.registrations.find((r) => r.registration_id === id);
@@ -1105,13 +1113,14 @@ export function getMyAttendance(ctx) {
 // ---------- People and roles ----------
 // Same rules as backend/app/routes/users.py.
 
+// Sign-ups for shifts that haven't started: the ones a peer educator can still cancel.
 function upcomingRegistrationCount(store, userId, now) {
   const shifts = new Map(store.shifts.map((shift) => [shift.shift_id, shift]));
   const events = new Map(store.events.map((event) => [event.event_id, event]));
   return store.registrations.filter((r) => {
     if (r.user_id !== userId || r.status !== "active") return false;
     const shift = shifts.get(r.shift_id);
-    return events.get(shift.event_id)?.status !== "cancelled" && !hasShiftEnded(shift, now);
+    return events.get(shift.event_id)?.status !== "cancelled" && !hasShiftStarted(shift, now);
   }).length;
 }
 
@@ -1119,6 +1128,10 @@ export function getUsers({ search = "" } = {}, ctx) {
   return respond(() => {
     if (ctx?.profile?.role !== "supervisor") {
       throw new ServiceError("Only supervisors can view people", { status: 403 });
+    }
+    // The signed-in supervisor comes from the real /api/me, so add them to the demo people.
+    if (ctx.profile.user_id && !readStore().users.some((user) => user.user_id === ctx.profile.user_id)) {
+      updateStore((draft) => upsertUser(draft, ctx.profile));
     }
     const store = readStore();
     const now = campusNow();

@@ -124,7 +124,7 @@ Open <http://localhost:5173>. The backend only allows CORS requests from this or
 
 Everyone who signs up is a peer educator. A supervisor can make someone else a supervisor (or a
 peer educator again) on the **People** page. Nobody can change their own role, and someone with
-upcoming shift sign-ups has to cancel them before becoming a supervisor.
+sign-ups for shifts that haven't started yet has to cancel them before becoming a supervisor.
 
 The very first supervisor has to be set once by hand. In the Supabase **SQL Editor**, run (with
 their email):

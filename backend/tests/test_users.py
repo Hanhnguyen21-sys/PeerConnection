@@ -55,6 +55,9 @@ class TestListUsers:
         assert [u["name"] for u in api.get("/api/users", supervisor, params={"search": "100%"}).json()] == ["Ben"]
         assert api.get("/api/users", supervisor, params={"search": "a_a"}).json() == []
 
+    def test_search_with_a_nul_character_is_a_validation_error(self, api, make):
+        assert_error(api.get("/api/users", make.supervisor(), params={"search": "a\x00b"}), 422)
+
     def test_peer_educators_cannot_list_people(self, api, make):
         educator = make.user()
         assert_error(api.get("/api/users", educator), 403, detail="Only supervisors can view people")
@@ -116,6 +119,10 @@ class TestSetRole:
     def test_needs_a_token(self, api, make):
         assert_error(set_role(api, None, make.user(), "supervisor"), 401)
 
+    def test_a_peer_educator_gets_403_even_with_a_bad_role(self, api, make):
+        educator = make.user()
+        assert_error(set_role(api, educator, make.user(), "admin"), 403, code="forbidden")
+
     @pytest.mark.parametrize("role", ["admin", "", None, 1, True, ["supervisor"]])
     def test_rejects_unknown_roles(self, api, make, role):
         supervisor, educator = make.supervisor(), make.user()
@@ -144,6 +151,22 @@ class TestPromotingSomeoneWithSignUps:
         # Once they cancel, the promotion goes through.
         api.cancel(educator, registration)
         assert set_role(api, supervisor, educator, "supervisor").status_code == 200
+
+    def test_a_shift_in_progress_doesnt_block_it(self, api, make, clock):
+        """It can't be cancelled any more, so it doesn't count as upcoming."""
+        supervisor, educator = make.supervisor(), make.user(name="Ana")
+        make.registration(educator, make.shift(day="2030-01-20", start="10:00", end="12:00"))
+        clock.set(2030, 1, 20, 11, 0)
+
+        listed = {u["name"]: u for u in api.get("/api/users", supervisor).json()}
+        assert listed["Ana"]["upcoming_registrations"] == 0
+        assert set_role(api, supervisor, educator, "supervisor").status_code == 200
+
+    def test_a_shift_starting_later_today_still_blocks_it(self, api, make, clock):
+        supervisor, educator = make.supervisor(), make.user()
+        make.registration(educator, make.shift(day="2030-01-20", start="10:00", end="12:00"))
+        clock.set(2030, 1, 20, 9, 59)
+        assert_error(set_role(api, supervisor, educator, "supervisor"), 409, code="has_registrations")
 
     def test_past_and_cancelled_sign_ups_dont_block_it(self, api, make):
         supervisor, educator = make.supervisor(), make.user()
