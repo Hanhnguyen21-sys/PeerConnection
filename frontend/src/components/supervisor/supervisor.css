@@ -1477,3 +1477,13 @@ tbody th {
   gap: 12px;
   margin-top: 12px;
 }
+
+/* ---------- Reports: participation ---------- */
+
+.report-participation {
+  margin-top: 24px;
+}
+
+.report-participation .table-wrap {
+  margin-top: 12px;
+}

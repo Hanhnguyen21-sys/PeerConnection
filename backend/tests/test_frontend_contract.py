@@ -62,6 +62,8 @@ def test_expected_paths():
         ("clearAttendance", ("DELETE", "/api/registrations/{}/attendance")),
         ("getUsers", ("GET", "/api/users")),
         ("setUserRole", ("PUT", "/api/users/{}/role")),
+        ("getAttendanceSummary", ("GET", "/api/attendance/summary")),
+        ("getMyAttendance", ("GET", "/api/me/attendance")),
     ],
 )
 def test_attendance_and_people_functions_have_a_backend_route(function, expected):
@@ -75,7 +77,14 @@ def test_every_supervisor_function_is_switched_to_the_api():
     use demo data with real ids."""
     index = (HTTP_SERVICE.parent / "index.js").read_text()
     listed = set(re.findall(r'"(\w+)"', index.split("SUPERVISOR_FUNCTIONS = [", 1)[1].split("]", 1)[0]))
-    for name in ("getShiftAttendance", "saveShiftAttendance", "clearAttendance", "getUsers", "setUserRole"):
+    for name in (
+        "getShiftAttendance",
+        "saveShiftAttendance",
+        "clearAttendance",
+        "getAttendanceSummary",
+        "getUsers",
+        "setUserRole",
+    ):
         assert name in listed, name
 
 

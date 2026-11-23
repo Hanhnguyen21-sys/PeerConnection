@@ -11,6 +11,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from "../../lib/campusTime";
+import { formatMinutes } from "../../lib/duration";
 import { useEventsApi } from "../../services/events/useEventsApi";
 
 const PRESETS = [
@@ -21,6 +22,84 @@ const PRESETS = [
 
 function formatFillRate(rate) {
   return rate === null ? "—" : `${Math.round(rate)}%`;
+}
+
+// Who actually came: attendance recorded for shifts in the range, per peer educator.
+function ParticipationSection({ query, range }) {
+  const summary = query.latestData;
+  let body;
+  if (query.error) {
+    body = <ErrorState title="We couldn't load attendance" error={query.error} onRetry={query.reload} />;
+  } else if (!summary) {
+    body = <LoadingState label="Loading attendance…" />;
+  } else if (summary.rows.length === 0) {
+    body = (
+      <EmptyState title="No attendance recorded in this range">
+        Attendance appears here after a supervisor marks it on an event&apos;s Attendance tab.
+      </EmptyState>
+    );
+  } else {
+    const { totals } = summary;
+    body = (
+      <>
+        <p className="hint" role="status">
+          {totals.peer_educators} peer educator{totals.peer_educators === 1 ? "" : "s"} ·{" "}
+          {totals.shifts_attended} shift{totals.shifts_attended === 1 ? "" : "s"} attended ·{" "}
+          {totals.shifts_absent} missed · {formatMinutes(totals.credited_minutes)} credited
+        </p>
+        <div className="table-wrap">
+          <table>
+            <caption className="visually-hidden">
+              Attendance by peer educator for {formatDateRange(range.from, range.to)}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Peer educator</th>
+                <th scope="col">Email</th>
+                <th scope="col" className="num">
+                  Shifts attended
+                </th>
+                <th scope="col" className="num">
+                  Shifts missed
+                </th>
+                <th scope="col" className="num">
+                  Credited time
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.rows.map((row) => (
+                <tr key={row.user.user_id}>
+                  <th scope="row">{row.user.name || row.user.email}</th>
+                  <td>
+                    <a className="text-link" href={`mailto:${row.user.email}`}>
+                      {row.user.email}
+                    </a>
+                  </td>
+                  <td className="num">{row.shifts_attended}</td>
+                  <td className="num">{row.shifts_absent}</td>
+                  <td className="num">{formatMinutes(row.credited_minutes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <section
+      className={`card report-participation${query.isLoading && summary ? " is-refreshing" : ""}`}
+      aria-labelledby="participation-heading"
+    >
+      <h2 className="section-title" id="participation-heading">
+        Participation
+      </h2>
+      <p className="hint">Attendance recorded for shifts in this range, by peer educator.</p>
+      {body}
+    </section>
+  );
 }
 
 function resolveRange(preset, from, to) {
@@ -49,6 +128,9 @@ export default function Reports() {
     api.getReport({ from: range.from, to: range.to }),
   );
   const report = reportQuery.latestData;
+  const attendanceQuery = useQuery(range.error ? null : `attendance:${range.from}:${range.to}`, () =>
+    api.getAttendanceSummary({ from: range.from, to: range.to }),
+  );
 
   function update(changes) {
     setSearchParams(
@@ -171,6 +253,8 @@ export default function Reports() {
             </div>
           )}
         </section>
+
+        <ParticipationSection query={attendanceQuery} range={range} />
       </div>
     );
   }
@@ -181,8 +265,8 @@ export default function Reports() {
         <div>
           <h1 className="page-title">Reports</h1>
           <p className="page-subtitle">
-            Staffing for shifts that take place in the selected range. Cancelled and draft events are
-            excluded.
+            Staffing and attendance for shifts that take place in the selected range. Cancelled and
+            draft events are excluded from staffing.
           </p>
         </div>
       </div>

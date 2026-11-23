@@ -74,6 +74,11 @@ export const saveShiftAttendance = (shiftId, records, ctx) =>
   request(`/api/shifts/${shiftId}/attendance`, ctx, { method: "PUT", body: { records } });
 export const clearAttendance = (registrationId, ctx) =>
   request(`/api/registrations/${registrationId}/attendance`, ctx, { method: "DELETE" });
+export const getAttendanceSummary = (params, ctx) =>
+  request("/api/attendance/summary", ctx, { query: params });
+
+// Attendance (peer educators: their own history).
+export const getMyAttendance = (ctx) => request("/api/me/attendance", ctx);
 
 // People and roles (supervisors).
 export const getUsers = (params, ctx) => request("/api/users", ctx, { query: params });

@@ -27,6 +27,7 @@ const SUPERVISOR_FUNCTIONS = [
   "getShiftAttendance",
   "saveShiftAttendance",
   "clearAttendance",
+  "getAttendanceSummary",
   "getUsers",
   "setUserRole",
 ];

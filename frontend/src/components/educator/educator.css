@@ -308,3 +308,13 @@
     align-items: center;
   }
 }
+
+.badge-attended {
+  background: #e2f5e9;
+  color: #1d6b3d;
+}
+
+.badge-absent {
+  background: #fde6e3;
+  color: #9e2118;
+}

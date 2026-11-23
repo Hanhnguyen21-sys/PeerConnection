@@ -819,7 +819,19 @@ function registrationDetail(store, registrationId, now = campusNow()) {
       end_time: shift.end_time,
     },
     location,
+    attendance: attendanceFor(store, registration.registration_id),
   };
+}
+
+function attendanceFor(store, registrationId) {
+  const record = (store.attendance ?? []).find((a) => a.registration_id === registrationId);
+  return record
+    ? {
+        attendance_id: record.attendance_id,
+        participation_status: record.participation_status,
+        credited_minutes: record.credited_minutes,
+      }
+    : null;
 }
 
 // Every registration the user has made, active or cancelled, oldest shift first.
@@ -998,6 +1010,95 @@ export function clearAttendance(registrationId, ctx) {
       draft.attendance = (draft.attendance ?? []).filter((a) => a.registration_id !== id);
     });
     return null;
+  });
+}
+
+export function getAttendanceSummary({ from, to } = {}, ctx) {
+  return respond(() => {
+    if (ctx?.profile?.role !== "supervisor") {
+      throw new ServiceError("Only supervisors can view attendance", { status: 403 });
+    }
+    if (!isValidDateString(from) || !isValidDateString(to) || from > to) {
+      throw new ServiceError("Choose a valid date range.", { status: 422 });
+    }
+    const store = readStore();
+    const registrations = new Map(store.registrations.map((r) => [r.registration_id, r]));
+    const shifts = new Map(store.shifts.map((shift) => [shift.shift_id, shift]));
+    const users = new Map(store.users.map((user) => [user.user_id, user]));
+    const byUser = new Map();
+    for (const record of store.attendance ?? []) {
+      const registration = registrations.get(record.registration_id);
+      const shift = registration && shifts.get(registration.shift_id);
+      if (!shift || shift.shift_date < from || shift.shift_date > to) continue;
+      const row = byUser.get(registration.user_id) ?? {
+        user: {
+          user_id: registration.user_id,
+          name: users.get(registration.user_id)?.name ?? "Unknown user",
+          email: users.get(registration.user_id)?.email ?? "",
+        },
+        shifts_attended: 0,
+        shifts_absent: 0,
+        credited_minutes: 0,
+      };
+      if (record.participation_status === "attended") row.shifts_attended += 1;
+      else row.shifts_absent += 1;
+      row.credited_minutes += record.credited_minutes;
+      byUser.set(registration.user_id, row);
+    }
+    const rows = [...byUser.values()].sort(
+      (a, b) => b.credited_minutes - a.credited_minutes || a.user.name.localeCompare(b.user.name),
+    );
+    return {
+      range: { from, to },
+      totals: {
+        peer_educators: rows.length,
+        shifts_attended: rows.reduce((sum, row) => sum + row.shifts_attended, 0),
+        shifts_absent: rows.reduce((sum, row) => sum + row.shifts_absent, 0),
+        credited_minutes: rows.reduce((sum, row) => sum + row.credited_minutes, 0),
+      },
+      rows,
+    };
+  });
+}
+
+export function getMyAttendance(ctx) {
+  return respond(() => {
+    if (ctx?.profile?.role !== "peer_educator") {
+      throw new ServiceError("Only peer educators can view their participation history", { status: 403 });
+    }
+    const store = readStore();
+    const registrations = new Map(store.registrations.map((r) => [r.registration_id, r]));
+    const records = (store.attendance ?? [])
+      .map((record) => {
+        const registration = registrations.get(record.registration_id);
+        if (!registration || registration.user_id !== ctx.profile.user_id) return null;
+        const shift = store.shifts.find((item) => item.shift_id === registration.shift_id);
+        const event = store.events.find((item) => item.event_id === shift.event_id);
+        return {
+          attendance_id: record.attendance_id,
+          registration_id: record.registration_id,
+          participation_status: record.participation_status,
+          credited_minutes: record.credited_minutes,
+          event: { event_id: event.event_id, title: event.title },
+          shift: {
+            shift_id: shift.shift_id,
+            shift_date: shift.shift_date,
+            start_time: shift.start_time,
+            end_time: shift.end_time,
+          },
+          location: store.locations.find((item) => item.location_id === shift.location_id) ?? null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => -compareShifts(a.shift, b.shift) || b.attendance_id - a.attendance_id);
+    return {
+      summary: {
+        shifts_attended: records.filter((r) => r.participation_status === "attended").length,
+        shifts_absent: records.filter((r) => r.participation_status === "absent").length,
+        credited_minutes: records.reduce((sum, r) => sum + r.credited_minutes, 0),
+      },
+      records,
+    };
   });
 }
 

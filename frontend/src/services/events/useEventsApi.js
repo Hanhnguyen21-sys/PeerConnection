@@ -34,6 +34,8 @@ export function useEventsApi() {
       getShiftAttendance: (shiftId) => eventService.getShiftAttendance(shiftId, ctx()),
       saveShiftAttendance: (shiftId, records) => eventService.saveShiftAttendance(shiftId, records, ctx()),
       clearAttendance: (registrationId) => eventService.clearAttendance(registrationId, ctx()),
+      getAttendanceSummary: (params) => eventService.getAttendanceSummary(params, ctx()),
+      getMyAttendance: () => eventService.getMyAttendance(ctx()),
       getUsers: (params) => eventService.getUsers(params, ctx()),
       setUserRole: (userId, role) => eventService.setUserRole(userId, role, ctx()),
     };
