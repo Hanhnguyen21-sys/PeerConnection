@@ -67,3 +67,15 @@ export const registerForShift = (shiftId, ctx) =>
   request(`/api/shifts/${shiftId}/registrations`, ctx, { method: "POST" });
 export const cancelRegistration = (registrationId, ctx) =>
   request(`/api/registrations/${registrationId}/cancel`, ctx, { method: "POST" });
+
+// Attendance (supervisors).
+export const getShiftAttendance = (shiftId, ctx) => request(`/api/shifts/${shiftId}/attendance`, ctx);
+export const saveShiftAttendance = (shiftId, records, ctx) =>
+  request(`/api/shifts/${shiftId}/attendance`, ctx, { method: "PUT", body: { records } });
+export const clearAttendance = (registrationId, ctx) =>
+  request(`/api/registrations/${registrationId}/attendance`, ctx, { method: "DELETE" });
+
+// People and roles (supervisors).
+export const getUsers = (params, ctx) => request("/api/users", ctx, { query: params });
+export const setUserRole = (userId, role, ctx) =>
+  request(`/api/users/${userId}/role`, ctx, { method: "PUT", body: { role } });

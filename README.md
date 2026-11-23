@@ -109,8 +109,8 @@ cp -n .env.example .env
 | `VITE_SUPABASE_URL` | Your Supabase project URL |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Your Supabase publishable (anon) key |
 | `VITE_API_BASE_URL` | Backend URL (optional; defaults to `http://localhost:8000` in dev) |
-| `VITE_SUPERVISOR_DATA_SOURCE` | `api` makes the supervisor dashboard (events, locations, reports) save to Supabase through the backend; otherwise it's demo data in the browser |
-| `VITE_EVENTS_DATA_SOURCE` | `api` uses the backend for everything, including peer educator screens |
+| `VITE_EVENTS_DATA_SOURCE` | `api` (the default in `.env.example`) uses the backend for every screen. `demo` uses sample data saved only in your browser, for trying the UI without a backend |
+| `VITE_SUPERVISOR_DATA_SOURCE` | Only used when `VITE_EVENTS_DATA_SOURCE` isn't `api`: `api` puts just the supervisor dashboard on the backend, while peer educator screens stay on demo data. In that mode supervisors never see educators' sign-ups, so use it only for UI work |
 
 Start the dev server:
 
@@ -119,6 +119,22 @@ npm run dev
 ```
 
 Open <http://localhost:5173>. The backend only allows CORS requests from this origin, so keep the frontend on port 5173.
+
+## Supervisors
+
+Everyone who signs up is a peer educator. A supervisor can make someone else a supervisor (or a
+peer educator again) on the **People** page. Nobody can change their own role, and someone with
+upcoming shift sign-ups has to cancel them before becoming a supervisor.
+
+The very first supervisor has to be set once by hand. In the Supabase **SQL Editor**, run (with
+their email):
+
+```sql
+UPDATE public.users SET role = 'supervisor' WHERE email = 'first.supervisor@sjsu.edu';
+```
+
+They'll see the supervisor dashboard the next time they sign in or reload. Everyone after that is
+set on the People page.
 
 ## Useful commands
 
@@ -159,6 +175,8 @@ Open <http://localhost:5173>. The backend only allows CORS requests from this or
 | PUT | `/api/registrations/{id}/attendance` | Supervisor | Mark one sign-up attended or absent |
 | DELETE | `/api/registrations/{id}/attendance` | Supervisor | Clear an attendance mark |
 | GET | `/api/attendance/summary?from=&to=` | Supervisor | Attendance totals per peer educator |
+| GET | `/api/users?search=` | Supervisor | Everyone with an account, their role and upcoming sign-ups |
+| PUT | `/api/users/{user_id}/role` | Supervisor | Make someone a `supervisor` or `peer_educator` (not yourself) |
 
 ## Backend tests
 

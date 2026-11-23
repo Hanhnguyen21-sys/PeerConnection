@@ -838,6 +838,242 @@ export function getMyRegistrations(_filters, ctx) {
   });
 }
 
+// ---------- Attendance ----------
+// Same rules as backend/app/routes/attendance.py.
+
+function minutesBetween(start, end) {
+  const [startHour, startMinute] = start.split(":").map(Number);
+  const [endHour, endMinute] = end.split(":").map(Number);
+  return endHour * 60 + endMinute - (startHour * 60 + startMinute);
+}
+
+function attendanceBlockedReason(event, shift, now) {
+  if (event.status === "cancelled") return "This event was cancelled, so attendance can't be changed.";
+  if (event.status !== "published") return "Attendance can only be recorded for published events.";
+  if (!hasShiftStarted(shift, now)) return "Attendance can be recorded once the shift starts.";
+  return null;
+}
+
+function shiftRoster(store, shiftId, now) {
+  const shift = store.shifts.find((item) => item.shift_id === shiftId);
+  if (!shift) throw notFound("Shift");
+  const event = store.events.find((item) => item.event_id === shift.event_id);
+  const location = store.locations.find((item) => item.location_id === shift.location_id) ?? null;
+  const users = new Map(store.users.map((user) => [user.user_id, user]));
+  const records = new Map((store.attendance ?? []).map((record) => [record.registration_id, record]));
+
+  const roster = store.registrations
+    .filter((r) => r.shift_id === shiftId && r.status === "active")
+    .map((r) => {
+      const user = users.get(r.user_id);
+      const record = records.get(r.registration_id);
+      return {
+        registration_id: r.registration_id,
+        registered_at: r.created_at,
+        user: { user_id: r.user_id, name: user?.name ?? "Unknown user", email: user?.email ?? "" },
+        attendance: record
+          ? {
+              attendance_id: record.attendance_id,
+              participation_status: record.participation_status,
+              credited_minutes: record.credited_minutes,
+            }
+          : null,
+      };
+    })
+    .sort((a, b) => a.user.name.localeCompare(b.user.name));
+
+  const marked = roster.map((entry) => entry.attendance).filter(Boolean);
+  const blocked = attendanceBlockedReason(event, shift, now);
+  return {
+    shift: {
+      shift_id: shift.shift_id,
+      shift_date: shift.shift_date,
+      start_time: shift.start_time,
+      end_time: shift.end_time,
+      capacity: shift.capacity,
+      duration_minutes: minutesBetween(shift.start_time, shift.end_time),
+      has_started: hasShiftStarted(shift, now),
+      has_ended: hasShiftEnded(shift, now),
+      location,
+    },
+    event: { event_id: event.event_id, title: event.title, status: event.status },
+    can_record: blocked === null,
+    blocked_reason: blocked,
+    summary: {
+      registered: roster.length,
+      attended: marked.filter((a) => a.participation_status === "attended").length,
+      absent: marked.filter((a) => a.participation_status === "absent").length,
+      unmarked: roster.length - marked.length,
+      credited_minutes: marked.reduce((sum, a) => sum + a.credited_minutes, 0),
+    },
+    roster,
+  };
+}
+
+function cleanAttendanceRecord(record, maxMinutes) {
+  const errors = {};
+  const status =
+    typeof record.participation_status === "string" ? record.participation_status.trim().toLowerCase() : null;
+  if (status !== "attended" && status !== "absent") errors.participation_status = 'Choose "attended" or "absent".';
+
+  const raw = record.credited_minutes;
+  const given = raw !== undefined && raw !== null && String(raw).trim() !== "";
+  let minutes = given && /^[0-9]{1,18}$/.test(String(raw).trim()) ? Number(String(raw).trim()) : null;
+  if (given && minutes === null) errors.credited_minutes = "Enter a whole number of minutes, 0 or more.";
+  else if (minutes !== null && minutes > maxMinutes)
+    errors.credited_minutes = `Credited minutes can't be more than the shift's ${maxMinutes} minutes.`;
+  else if (status === "absent" && minutes) errors.credited_minutes = "Absent participants can't be credited minutes.";
+
+  if (status === "absent") minutes = 0;
+  else if (minutes === null) minutes = maxMinutes;
+  return { cleaned: { participation_status: status, credited_minutes: minutes }, errors };
+}
+
+export function getShiftAttendance(shiftId, ctx) {
+  return respond(() => {
+    requireSupervisor(ctx);
+    return shiftRoster(readStore(), Number(shiftId), campusNow());
+  });
+}
+
+export function saveShiftAttendance(shiftId, records, ctx) {
+  return respond(() => {
+    requireSupervisor(ctx);
+    const id = Number(shiftId);
+    const now = campusNow();
+    const roster = shiftRoster(readStore(), id, now);
+    if (!roster.can_record) throw new ServiceError(roster.blocked_reason, { status: 409 });
+    if (!Array.isArray(records) || records.length === 0) {
+      throw new ServiceError("Add at least one attendance record.", {
+        status: 422,
+        fieldErrors: { records: "Add at least one attendance record." },
+      });
+    }
+
+    const active = new Set(roster.roster.map((entry) => entry.registration_id));
+    const seen = new Set();
+    const cleaned = [];
+    const recordErrors = {};
+    records.forEach((record, index) => {
+      const { cleaned: values, errors } = cleanAttendanceRecord(record, roster.shift.duration_minutes);
+      const registrationId = Number(record.registration_id);
+      if (!active.has(registrationId)) errors.registration_id = "This isn't an active registration for this shift.";
+      else if (seen.has(registrationId)) errors.registration_id = "This registration is listed more than once.";
+      seen.add(registrationId);
+      if (Object.keys(errors).length > 0) recordErrors[String(index)] = errors;
+      cleaned.push({ registration_id: registrationId, ...values });
+    });
+    if (Object.keys(recordErrors).length > 0) {
+      throw new ServiceError("Please fix the highlighted fields.", {
+        status: 422,
+        fieldErrors: { records: recordErrors },
+      });
+    }
+
+    updateStore((store) => {
+      store.attendance = store.attendance ?? [];
+      for (const values of cleaned) {
+        const existing = store.attendance.find((a) => a.registration_id === values.registration_id);
+        if (existing) Object.assign(existing, values);
+        else store.attendance.push({ attendance_id: nextId(store.attendance, "attendance_id"), ...values });
+      }
+    });
+    return shiftRoster(readStore(), id, now);
+  });
+}
+
+export function clearAttendance(registrationId, ctx) {
+  return respond(() => {
+    requireSupervisor(ctx);
+    const store = readStore();
+    const id = Number(registrationId);
+    const registration = store.registrations.find((r) => r.registration_id === id);
+    if (!registration) throw notFound("Registration");
+    const shift = store.shifts.find((item) => item.shift_id === registration.shift_id);
+    const event = store.events.find((item) => item.event_id === shift.event_id);
+    if (event.status === "cancelled") {
+      throw new ServiceError("This event was cancelled, so attendance can't be changed.", { status: 409 });
+    }
+    updateStore((draft) => {
+      draft.attendance = (draft.attendance ?? []).filter((a) => a.registration_id !== id);
+    });
+    return null;
+  });
+}
+
+// ---------- People and roles ----------
+// Same rules as backend/app/routes/users.py.
+
+function upcomingRegistrationCount(store, userId, now) {
+  const shifts = new Map(store.shifts.map((shift) => [shift.shift_id, shift]));
+  const events = new Map(store.events.map((event) => [event.event_id, event]));
+  return store.registrations.filter((r) => {
+    if (r.user_id !== userId || r.status !== "active") return false;
+    const shift = shifts.get(r.shift_id);
+    return events.get(shift.event_id)?.status !== "cancelled" && !hasShiftEnded(shift, now);
+  }).length;
+}
+
+export function getUsers({ search = "" } = {}, ctx) {
+  return respond(() => {
+    if (ctx?.profile?.role !== "supervisor") {
+      throw new ServiceError("Only supervisors can view people", { status: 403 });
+    }
+    const store = readStore();
+    const now = campusNow();
+    const term = normalizeText(search).toLowerCase();
+    return store.users
+      .filter((user) => !term || user.name.toLowerCase().includes(term) || user.email.toLowerCase().includes(term))
+      .map((user) => ({
+        user_id: user.user_id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        upcoming_registrations: upcomingRegistrationCount(store, user.user_id, now),
+        is_you: user.user_id === ctx.profile.user_id,
+      }))
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.email.localeCompare(b.email));
+  });
+}
+
+export function setUserRole(userId, role, ctx) {
+  return respond(() => {
+    if (ctx?.profile?.role !== "supervisor") {
+      throw new ServiceError("Only supervisors can change roles.", { status: 403, code: "forbidden" });
+    }
+    const cleanRole = typeof role === "string" ? role.trim().toLowerCase() : null;
+    if (cleanRole !== "supervisor" && cleanRole !== "peer_educator") {
+      throw new ServiceError("Please fix the highlighted fields.", {
+        status: 422,
+        fieldErrors: { role: 'Choose "supervisor" or "peer_educator".' },
+      });
+    }
+    if (userId === ctx.profile.user_id) {
+      throw new ServiceError("You can't change your own role. Ask another supervisor to do it.", {
+        status: 409,
+        code: "own_role",
+      });
+    }
+    const store = readStore();
+    const target = store.users.find((user) => user.user_id === userId);
+    if (!target) throw notFound("User");
+    if (cleanRole === "supervisor" && target.role !== "supervisor") {
+      const upcoming = upcomingRegistrationCount(store, userId, campusNow());
+      if (upcoming) {
+        throw new ServiceError(
+          `${target.name || target.email} has ${upcoming} upcoming shift ${upcoming === 1 ? "registration" : "registrations"}. ` +
+            "They need to cancel them before becoming a supervisor.",
+          { status: 409, code: "has_registrations" },
+        );
+      }
+    }
+    updateStore((draft) => {
+      draft.users.find((user) => user.user_id === userId).role = cleanRole;
+    });
+    return { user_id: target.user_id, name: target.name, email: target.email, role: cleanRole, is_you: false };
+  });
+}
+
 // ---------- Demo only ----------
 
 export function resetDemoData() {

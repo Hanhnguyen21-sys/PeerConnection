@@ -54,6 +54,7 @@ export const router = createBrowserRouter([
           { path: "events/:eventId/edit", lazy: page(() => import("./pages/supervisor/EventEdit")) },
           { path: "reports", lazy: page(() => import("./pages/supervisor/Reports")) },
           { path: "locations", lazy: page(() => import("./pages/supervisor/Locations")) },
+          { path: "people", lazy: page(() => import("./pages/supervisor/People")) },
           { path: "*", lazy: page(() => import("./pages/supervisor/SupervisorNotFound")) },
         ],
       },

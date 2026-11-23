@@ -195,5 +195,12 @@ export function createSeedData(today, nowIso = new Date().toISOString()) {
     });
   });
 
-  return { users, locations: LOCATIONS.map((location) => ({ ...location })), events, shifts, registrations };
+  return {
+    users,
+    locations: LOCATIONS.map((location) => ({ ...location })),
+    events,
+    shifts,
+    registrations,
+    attendance: [],
+  };
 }

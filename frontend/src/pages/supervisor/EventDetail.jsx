@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ConfirmDialog } from "../../components/Modal";
+import AttendancePanel from "../../components/supervisor/AttendancePanel";
 import {
   ArrowLeftIcon,
   BanIcon,
@@ -314,6 +315,7 @@ export default function EventDetail() {
               label: "Participants",
               count: participantsQuery.latestData?.length ?? "…",
             },
+            { id: "attendance", label: "Attendance" },
           ]}
           active={activeTab}
           onChange={setActiveTab}
@@ -338,6 +340,7 @@ export default function EventDetail() {
             ) : (
               <ParticipantList participants={participantsQuery.latestData} shifts={event.shifts} />
             ))}
+          {activeTab === "attendance" && <AttendancePanel shifts={event.shifts} onSaved={setNotice} />}
         </div>
       </section>
 

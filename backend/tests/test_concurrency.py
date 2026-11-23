@@ -16,11 +16,12 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 import pytest
 import uvicorn
+from fastapi import HTTPException
 
 from app import campus_time
 from app.errors import ApiError
 from app.main import app
-from app.routes import attendance, events, registrations
+from app.routes import attendance, events, registrations, users
 from helpers import DEFAULT_NOW, fake_authenticated_user_id, free_port
 
 DURING_THE_SHIFT = datetime(2030, 1, 20, 11, 0)  # the factory's default shift is 10:00-12:00 that day
@@ -281,3 +282,62 @@ def test_over_http_with_a_real_server(make, monkeypatch):
     assert results.count((201, None)) == 2
     assert results.count((409, "full")) == 13
     assert active_count(make, shift_id=shift) == 2
+
+
+# ---------- Roles ----------
+
+def change_role(actor, target, role):
+    return lambda: users.set_user_role(target, users.RoleInput(role=role), user_id=actor)
+
+
+def supervisor_count(make):
+    return make.one("SELECT COUNT(*)::int AS n FROM public.users WHERE role = 'supervisor'")["n"]
+
+
+@pytest.mark.parametrize("attempt", range(3))
+def test_two_supervisors_demoting_each_other_leave_one(make, slow_clock, attempt):
+    first, second = make.supervisor(), make.supervisor()
+
+    results = race([change_role(first, second, "peer_educator"), change_role(second, first, "peer_educator")])
+
+    assert sorted(results) == ["created", "forbidden"]
+    assert supervisor_count(make) == 1
+
+
+def test_a_ring_of_supervisors_demoting_each_other_never_removes_them_all(make, slow_clock):
+    """Each supervisor demotes the next one. Every call succeeding would need each
+    to run before the one demoting it, which is a cycle, so at least one remains."""
+    supervisors = [make.supervisor() for _ in range(6)]
+    calls = [
+        change_role(actor, supervisors[(index + 1) % len(supervisors)], "peer_educator")
+        for index, actor in enumerate(supervisors)
+    ]
+
+    results = race(calls)
+
+    remaining = supervisor_count(make)
+    assert remaining >= 1
+    assert results.count("created") == len(supervisors) - remaining
+    assert results.count("forbidden") == remaining
+
+
+def test_promoting_someone_while_they_sign_up(make, slow_clock):
+    """Either the promotion wins and the sign-up is refused, or the sign-up wins
+    and the promotion is refused. Never a supervisor holding a spot."""
+    supervisor, educator, shift = make.supervisor(), make.user(), make.shift()
+
+    def sign_up_call():
+        try:
+            registrations.register_for_shift(shift, user_id=educator)
+        except HTTPException as error:  # require_peer_educator's 403
+            raise ApiError(error.status_code, error.detail, code="not_peer_educator")
+
+    results = race([change_role(supervisor, educator, "supervisor"), sign_up_call])
+
+    role = make.one("SELECT role FROM public.users WHERE user_id = %s", (educator,))["role"]
+    if role == "supervisor":
+        assert results == ["created", "not_peer_educator"]
+        assert active_count(make, user_id=educator) == 0
+    else:
+        assert results == ["has_registrations", "created"]
+        assert active_count(make, user_id=educator) == 1

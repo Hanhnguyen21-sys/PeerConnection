@@ -1,5 +1,5 @@
 import DashboardLayout from "./DashboardLayout";
-import { ChartIcon, HomeIcon, MapPinIcon, PlusCircleIcon } from "./Icons";
+import { ChartIcon, HomeIcon, MapPinIcon, PlusCircleIcon, UsersIcon } from "./Icons";
 
 const HOME_PATH = "/supervisor";
 
@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { to: `${HOME_PATH}/events/new`, label: "Create", Icon: PlusCircleIcon },
   { to: `${HOME_PATH}/reports`, label: "Reports", Icon: ChartIcon },
   { to: `${HOME_PATH}/locations`, label: "Locations", Icon: MapPinIcon },
+  { to: `${HOME_PATH}/people`, label: "People", Icon: UsersIcon },
 ];
 
 export default function SupervisorLayout() {

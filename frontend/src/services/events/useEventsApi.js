@@ -31,6 +31,11 @@ export function useEventsApi() {
       getMyRegistrations: (params) => eventService.getMyRegistrations(params, ctx()),
       registerForShift: (shiftId) => eventService.registerForShift(shiftId, ctx()),
       cancelRegistration: (id) => eventService.cancelRegistration(id, ctx()),
+      getShiftAttendance: (shiftId) => eventService.getShiftAttendance(shiftId, ctx()),
+      saveShiftAttendance: (shiftId, records) => eventService.saveShiftAttendance(shiftId, records, ctx()),
+      clearAttendance: (registrationId) => eventService.clearAttendance(registrationId, ctx()),
+      getUsers: (params) => eventService.getUsers(params, ctx()),
+      setUserRole: (userId, role) => eventService.setUserRole(userId, role, ctx()),
     };
   }, []);
 }
